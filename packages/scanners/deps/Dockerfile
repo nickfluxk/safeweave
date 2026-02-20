@@ -4,7 +4,7 @@ FROM node:20-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv \
     ruby ruby-dev \
-    curl wget build-essential \
+    curl wget git build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pip-audit
