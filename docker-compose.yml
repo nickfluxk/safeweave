@@ -1,0 +1,72 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gateway
+    ports:
+      - "9000:9000"
+    environment:
+      - SCANNER_SAST_HOST=sast
+      - SCANNER_SAST_PORT=9001
+      - SCANNER_SAST_ENABLED=true
+      - SCANNER_DEPS_HOST=deps
+      - SCANNER_DEPS_PORT=9002
+      - SCANNER_DEPS_ENABLED=true
+      - SCANNER_SECRETS_HOST=secrets
+      - SCANNER_SECRETS_PORT=9003
+      - SCANNER_SECRETS_ENABLED=true
+      - SCANNER_IAC_HOST=iac
+      - SCANNER_IAC_PORT=9004
+      - SCANNER_IAC_ENABLED=true
+      - SCANNER_CONTAINER_HOST=container-scanner
+      - SCANNER_CONTAINER_PORT=9005
+      - SCANNER_CONTAINER_ENABLED=true
+      - SCANNER_DAST_HOST=dast
+      - SCANNER_DAST_PORT=9006
+      - SCANNER_DAST_ENABLED=true
+      - SCANNER_LICENSE_HOST=license-scanner
+      - SCANNER_LICENSE_PORT=9007
+      - SCANNER_LICENSE_ENABLED=true
+    depends_on:
+      - sast
+      - deps
+      - secrets
+      - iac
+      - container-scanner
+      - dast
+      - license-scanner
+
+  sast:
+    build: packages/scanners/sast
+    environment:
+      - PORT=9001
+
+  deps:
+    build: packages/scanners/deps
+    environment:
+      - PORT=9002
+
+  secrets:
+    build: packages/scanners/secrets
+    environment:
+      - PORT=9003
+
+  iac:
+    build: packages/scanners/iac
+    environment:
+      - PORT=9004
+
+  container-scanner:
+    build: packages/scanners/container
+    environment:
+      - PORT=9005
+
+  dast:
+    build: packages/scanners/dast
+    environment:
+      - PORT=9006
+
+  license-scanner:
+    build: packages/scanners/license
+    environment:
+      - PORT=9007

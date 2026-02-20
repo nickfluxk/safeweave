@@ -1,0 +1,17 @@
+{
+  "name": "safeweave",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/common",
+    "packages/gateway",
+    "packages/scanners/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "clean": "npm run clean --workspaces"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
