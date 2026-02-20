@@ -5,7 +5,7 @@ AI-native security scanning with 7 scanners, MCP integration, and compliance pro
 ## Quick Start
 
 ```bash
-git clone https://github.com/safeweave/safeweave.git
+git clone https://github.com/nickfluxk/safeweave.git
 cd safeweave
 docker compose up
 ```
