@@ -22,6 +22,7 @@ export interface SafeweaveConfig {
     license: ScannerConfig;
     dast: ScannerConfig;
     secrets: ScannerConfig;
+    posture: ScannerConfig;
   };
 }
 
@@ -39,6 +40,7 @@ export const DEFAULT_CONFIG: SafeweaveConfig = {
     container: { enabled: true, host: '127.0.0.1', port: 9005 },
     dast: { enabled: true, host: '127.0.0.1', port: 9006 },
     license: { enabled: true, host: '127.0.0.1', port: 9007 },
+    posture: { enabled: true, host: '127.0.0.1', port: 9008 },
   },
 };
 
@@ -97,6 +99,7 @@ export function loadConfig(projectDir: string): SafeweaveConfig {
         license: mergeScanner(DEFAULT_CONFIG.scanners.license, scannerOverrides.license),
         dast: mergeScanner(DEFAULT_CONFIG.scanners.dast, scannerOverrides.dast),
         secrets: mergeScanner(DEFAULT_CONFIG.scanners.secrets, scannerOverrides.secrets),
+        posture: mergeScanner(DEFAULT_CONFIG.scanners.posture, scannerOverrides.posture),
       },
     };
     return applyEnvOverrides(config);

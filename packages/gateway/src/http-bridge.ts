@@ -2,11 +2,24 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { loadConfig } from './config.js';
 import { Router } from './router/index.js';
 import { ProfileManager } from './profiles/index.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { createServer as createMcpServer } from './server.js';
+
+const MAX_BODY_SIZE = 5 * 1024 * 1024; // 5 MB
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let totalSize = 0;
+    req.on('data', (chunk: Buffer) => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
     req.on('error', reject);
   });
@@ -29,7 +42,10 @@ export function startHttpBridge(projectDir: string): void {
   const host = config.gateway.host;
   const port = config.gateway.port;
 
-  const server = createHttpServer(async (req, res) => {
+  // Track SSE transports by session ID
+  const sseTransports = new Map<string, SSEServerTransport>();
+
+  const httpServer = createHttpServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -41,6 +57,40 @@ export function startHttpBridge(projectDir: string): void {
     }
 
     try {
+      // --- MCP SSE endpoints ---
+
+      // GET /sse — establish SSE stream
+      if (req.method === 'GET' && (req.url === '/sse' || req.url === '/mcp')) {
+        const transport = new SSEServerTransport('/messages', res);
+        sseTransports.set(transport.sessionId, transport);
+
+        transport.onclose = () => {
+          sseTransports.delete(transport.sessionId);
+        };
+
+        const mcpServer = createMcpServer(projectDir);
+        // connect() calls transport.start() internally — do not call start() again
+        await mcpServer.connect(transport);
+        return;
+      }
+
+      // POST /messages?sessionId=xxx — client sends MCP messages
+      if (req.method === 'POST' && req.url?.startsWith('/messages')) {
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const sessionId = url.searchParams.get('sessionId');
+
+        if (!sessionId || !sseTransports.has(sessionId)) {
+          sendJson(res, 400, { error: 'Invalid or missing sessionId' });
+          return;
+        }
+
+        const transport = sseTransports.get(sessionId)!;
+        await transport.handlePostMessage(req, res);
+        return;
+      }
+
+      // --- REST API endpoints ---
+
       if (req.method === 'GET' && req.url === '/api/health') {
         const health = await router.healthCheck();
         sendJson(res, 200, { status: 'ok', scanners: health });
@@ -48,13 +98,26 @@ export function startHttpBridge(projectDir: string): void {
       }
 
       if (req.method === 'POST' && req.url === '/api/scan') {
-        const rawBody = await readBody(req);
-        const body = JSON.parse(rawBody) as {
-          directory?: string;
-          files?: string[];
-          scanners?: string[];
-          target_url?: string;
-        };
+        let rawBody: string;
+        try {
+          rawBody = await readBody(req);
+        } catch (err) {
+          sendJson(res, 413, { error: 'Request body too large' });
+          return;
+        }
+
+        let body: { directory?: string; files?: string[]; scanners?: string[]; target_url?: string };
+        try {
+          body = JSON.parse(rawBody);
+        } catch {
+          sendJson(res, 400, { error: 'Invalid JSON in request body' });
+          return;
+        }
+
+        if (body && typeof body !== 'object') {
+          sendJson(res, 400, { error: 'Request body must be a JSON object' });
+          return;
+        }
 
         const dir = body.directory || projectDir;
         const profile = profileManager.getActive();
@@ -84,11 +147,14 @@ export function startHttpBridge(projectDir: string): void {
       sendJson(res, 404, { error: 'Not found' });
     } catch (err) {
       console.error('HTTP bridge error:', err);
-      sendJson(res, 500, { error: 'Internal server error' });
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: 'Internal server error' });
+      }
     }
   });
 
-  server.listen(port, host, () => {
+  httpServer.listen(port, host, () => {
     console.log(`SafeWeave HTTP bridge listening on http://${host}:${port}`);
+    console.log(`MCP SSE endpoint available at http://${host}:${port}/sse`);
   });
 }

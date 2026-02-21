@@ -1,5 +1,6 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { ScanRequest, ScanResult, Finding } from '@safeweave/common';
+import { validateScanRequest } from '@safeweave/common';
 import type { EcosystemAuditor } from './types.js';
 import { detectEcosystems } from './detect.js';
 import { npmAuditor } from './npm-audit.js';
@@ -40,6 +41,10 @@ export function createServer() {
       const start = Date.now();
       const body = await readBody(req);
       const request: ScanRequest = JSON.parse(body);
+      const validation = validateScanRequest(request);
+      if (!validation.valid) {
+        return json(res, 400, { error: 'Invalid scan request', details: validation.errors });
+      }
       const rootDir = request.context.rootDir || process.cwd();
 
       const detected = detectEcosystems(rootDir, ALL_AUDITORS);

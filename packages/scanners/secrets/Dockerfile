@@ -9,6 +9,7 @@ COPY package.json ./
 RUN node -e "const p=require('./package.json'); delete p.dependencies['@safeweave/common']; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2))"
 RUN npm install --omit=dev
 COPY dist/ ./dist/
+COPY common-dist/ ./node_modules/@safeweave/common/
 ENV PORT=9003
 EXPOSE 9003
 CMD ["node", "dist/index.js"]

@@ -1,0 +1,70 @@
+rules:
+  # ── GraphQL Security ────────────────────────────────────────────────
+  - id: safeweave.node.graphql.introspection-enabled
+    patterns:
+      - pattern-either:
+          - pattern: |
+              { ..., introspection: true, ... }
+          - pattern: |
+              new ApolloServer({ ... })
+      - pattern-not-inside: |
+          new ApolloServer({ ..., introspection: false, ... })
+    message: >-
+      GraphQL introspection enabled. In production, disable introspection
+      to prevent schema disclosure. Set introspection: false.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-200"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.graphql.no-depth-limit
+    patterns:
+      - pattern: |
+          new ApolloServer({ ... })
+      - pattern-not-inside: |
+          new ApolloServer({ ..., validationRules: [...], ... })
+    message: >-
+      GraphQL server without query depth limiting. Deeply nested queries
+      can cause DoS. Add depthLimit from graphql-depth-limit.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-400"]
+      owasp: ["A04:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.graphql.no-cost-analysis
+    patterns:
+      - pattern: |
+          new ApolloServer({ ... })
+      - pattern-not-inside: |
+          new ApolloServer({ ..., plugins: [...], ... })
+    message: >-
+      GraphQL server without query cost analysis. Complex queries can
+      exhaust server resources. Add query complexity analysis plugin.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-400"]
+      category: security
+      confidence: LOW
+
+  # ── Python GraphQL ──────────────────────────────────────────────────
+  - id: safeweave.python.graphql.introspection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              GraphQLView.as_view(..., graphiql=True, ...)
+    message: >-
+      GraphiQL interface enabled. Disable in production to prevent
+      schema exploration.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-200"]
+      category: security
+      confidence: MEDIUM

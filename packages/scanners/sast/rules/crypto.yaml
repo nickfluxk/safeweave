@@ -1,0 +1,117 @@
+rules:
+  # ── Insecure Cryptography ───────────────────────────────────────────
+  - id: safeweave.node.crypto.weak-hash-md5
+    pattern-either:
+      - pattern: createHash('md5')
+      - pattern: $CRYPTO.createHash('md5')
+    message: >-
+      MD5 is cryptographically broken and unsuitable for security use.
+      Use SHA-256 or SHA-3 for hashing, or bcrypt/argon2 for passwords.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-328"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.node.crypto.weak-hash-sha1
+    pattern-either:
+      - pattern: createHash('sha1')
+      - pattern: $CRYPTO.createHash('sha1')
+    message: >-
+      SHA-1 is deprecated for security purposes due to collision attacks.
+      Use SHA-256 or SHA-3 instead.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-328"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.node.crypto.weak-random
+    pattern-either:
+      - pattern: Math.random()
+    message: >-
+      Math.random() is not cryptographically secure. Use
+      crypto.randomBytes() or crypto.randomUUID() for security-sensitive
+      values like tokens, session IDs, or nonces.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-338"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.crypto.hardcoded-jwt-secret
+    pattern-either:
+      - pattern: jwt.sign($PAYLOAD, "...", ...)
+      - pattern: jwt.verify($TOKEN, "...", ...)
+      - pattern: $JWT.sign($PAYLOAD, "...", ...)
+    message: >-
+      JWT signed/verified with hardcoded secret. Store secrets in
+      environment variables or a secrets manager.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.node.crypto.weak-jwt-algorithm
+    pattern-either:
+      - pattern: |
+          jwt.sign($PAYLOAD, $SECRET, { ..., algorithm: 'none', ... })
+      - pattern: |
+          { ..., algorithms: ['none'], ... }
+    message: >-
+      JWT with 'none' algorithm disables signature verification entirely.
+      Use RS256 or HS256 at minimum.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-327"]
+      category: security
+      confidence: HIGH
+
+  # ── Python Crypto ───────────────────────────────────────────────────
+  - id: safeweave.python.crypto.weak-hash-md5
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.new('md5', ...)
+    message: >-
+      MD5 is cryptographically broken. Use hashlib.sha256() or
+      hashlib.sha3_256() for secure hashing.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-328"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.crypto.weak-random
+    pattern: random.random()
+    message: >-
+      random.random() is not cryptographically secure. Use
+      secrets.token_bytes() or secrets.token_hex() instead.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-338"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Go Crypto ───────────────────────────────────────────────────────
+  - id: safeweave.go.crypto.weak-hash-md5
+    pattern: md5.New()
+    message: >-
+      MD5 is cryptographically broken. Use sha256.New() from crypto/sha256.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-328"]
+      category: security
+      confidence: HIGH

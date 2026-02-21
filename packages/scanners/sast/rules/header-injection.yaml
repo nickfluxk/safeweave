@@ -1,0 +1,37 @@
+rules:
+  # ── HTTP Header Injection / Response Splitting ──────────────────────
+  - id: safeweave.node.header.crlf-injection
+    patterns:
+      - pattern-either:
+          - pattern: $RES.setHeader($NAME, $VALUE)
+          - pattern: |
+              $RES.writeHead($STATUS, { ..., $NAME: $VALUE, ... })
+      - pattern-not-inside: |
+          $SAFE = $VALUE.replace(/[\r\n]/g, ...);
+          ...
+    message: >-
+      HTTP header set with potentially user-controlled value. If the
+      value contains CRLF characters (\r\n), it enables HTTP response
+      splitting. Sanitize header values by stripping \r and \n.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-113"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.python.header.crlf-injection
+    patterns:
+      - pattern-either:
+          - pattern: $RESPONSE['$HEADER'] = $VALUE
+          - pattern: $RESPONSE.headers['$HEADER'] = $VALUE
+    message: >-
+      HTTP header set with potentially user-controlled value. Sanitize
+      to prevent CRLF injection / response splitting.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-113"]
+      category: security
+      confidence: LOW

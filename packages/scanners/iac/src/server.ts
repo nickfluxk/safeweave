@@ -1,6 +1,7 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { runTrivyMisconfig } from './trivy.js';
 import type { ScanRequest, ScanResult } from '@safeweave/common';
+import { validateScanRequest } from '@safeweave/common';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -27,6 +28,10 @@ export function createServer() {
       try {
         const body = await readBody(req);
         const request: ScanRequest = JSON.parse(body);
+        const validation = validateScanRequest(request);
+        if (!validation.valid) {
+          return json(res, 400, { error: 'Invalid scan request', details: validation.errors });
+        }
         const findings = await runTrivyMisconfig(request);
 
         const result: ScanResult = {

@@ -10,10 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install pip-audit
 RUN pip3 install --break-system-packages pip-audit
 
-# Install Go 1.23
-RUN wget -qO- https://go.dev/dl/go1.23.6.linux-amd64.tar.gz | tar xz -C /usr/local
+# Install Go 1.23 (detect architecture)
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then GOARCH="arm64"; else GOARCH="amd64"; fi && \
+    wget -qO- "https://go.dev/dl/go1.23.6.linux-${GOARCH}.tar.gz" | tar xz -C /usr/local
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
-RUN go install golang.org/x/vuln/cmd/govulncheck@latest
+RUN CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@latest
 
 # Install Rust + cargo-audit
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -25,8 +27,8 @@ RUN gem install bundler-audit
 
 WORKDIR /app
 
-# Copy package files from monorepo context (Railway uses repo root as build context)
-COPY packages/scanners/deps/package.json ./
+# Copy package files
+COPY package.json ./
 
 # Install all deps (including dev for TypeScript compilation)
 RUN node -e "const p=require('./package.json'); delete p.dependencies['@safeweave/common']; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2))"
@@ -35,19 +37,19 @@ RUN npm install && npm install typescript @types/node
 # Create a self-contained tsconfig (can't use extends since base is outside context)
 RUN echo '{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","declaration":true,"sourceMap":true,"strict":true,"esModuleInterop":true,"skipLibCheck":true,"forceConsistentCasingInFileNames":true,"outDir":"dist","rootDir":"src"},"include":["src/**/*"],"exclude":["src/__tests__/**"]}' > tsconfig.json
 
-# Create a stub for @safeweave/common types (only needed at compile time)
-RUN mkdir -p node_modules/@safeweave/common/dist && \
-    echo '{"name":"@safeweave/common","version":"0.1.0","type":"module","main":"dist/index.js","types":"dist/index.d.ts"}' > node_modules/@safeweave/common/package.json && \
-    printf 'export interface ScanRequest { files: string[]; context: { rootDir?: string } }\nexport interface ScanResult { findings: Finding[]; metadata: Record<string, unknown> }\nexport interface Finding { id: string; severity: string; title: string; description: string; file: string; line?: number; column?: number; remediation?: string; cwe?: string; metadata?: Record<string, unknown> }\n' > node_modules/@safeweave/common/dist/index.d.ts && \
-    printf 'export {};\n' > node_modules/@safeweave/common/dist/index.js
+# Install @safeweave/common (real package with types + runtime code)
+COPY common-dist/ ./node_modules/@safeweave/common/
 
 # Copy source and compile
-COPY packages/scanners/deps/src/ ./src/
+COPY src/ ./src/
 RUN npx tsc
 
 # Clean up dev deps, reinstall prod only
 RUN rm -rf node_modules && \
     npm install --omit=dev 2>/dev/null || true
+
+# Install @safeweave/common runtime (validateScanRequest)
+COPY common-dist/ ./node_modules/@safeweave/common/
 
 ENV PORT=9002
 EXPOSE 9002

@@ -1,0 +1,90 @@
+rules:
+  # ── Authentication / Authorization Issues ───────────────────────────
+  - id: safeweave.node.auth.hardcoded-password
+    patterns:
+      - pattern-either:
+          - pattern: password = "..."
+          - pattern: const password = "..."
+          - pattern: let password = "..."
+          - pattern: PASSWORD = "..."
+          - pattern: $OBJ.password = "..."
+    message: >-
+      Hardcoded password in source code. Use environment variables or
+      a secrets manager for credentials.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.auth.hardcoded-api-key
+    patterns:
+      - pattern-either:
+          - pattern: $X = "AKIA..."
+          - pattern: $X = "sk-..."
+          - pattern: $X = "ghp_..."
+          - pattern: $X = "glpat-..."
+          - pattern: api_key = "..."
+          - pattern: apiKey = "..."
+          - pattern: API_KEY = "..."
+    message: >-
+      Potential hardcoded API key or token. Store in environment
+      variables or a secrets manager.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.auth.bcrypt-low-rounds
+    patterns:
+      - pattern-either:
+          - pattern: bcrypt.hash($PW, $ROUNDS)
+          - pattern: bcrypt.hashSync($PW, $ROUNDS)
+      - metavariable-comparison:
+          metavariable: $ROUNDS
+          comparison: $ROUNDS < 10
+    message: >-
+      bcrypt salt rounds below 10 is too low. Use at least 12 rounds
+      for password hashing.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-916"]
+      category: security
+      confidence: HIGH
+
+  # ── Session Security ────────────────────────────────────────────────
+  - id: safeweave.node.session.insecure-config
+    pattern: |
+      session({ ..., cookie: { ..., secure: false, ... }, ... })
+    message: >-
+      Session cookie with secure: false — cookie will be sent over
+      plain HTTP. Set secure: true in production.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-614"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Python Auth ─────────────────────────────────────────────────────
+  - id: safeweave.python.auth.hardcoded-secret-key
+    patterns:
+      - pattern-either:
+          - pattern: SECRET_KEY = "..."
+          - pattern: secret_key = "..."
+    message: >-
+      Hardcoded secret key. Use environment variables:
+      SECRET_KEY = os.environ['SECRET_KEY']
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-798"]
+      category: security
+      confidence: MEDIUM

@@ -1,0 +1,92 @@
+rules:
+  # ── Cross-Site Scripting (XSS) ──────────────────────────────────────
+  - id: safeweave.node.xss.innerHTML-assignment
+    pattern-either:
+      - pattern: $EL.innerHTML = $VAL
+      - pattern: $EL.outerHTML = $VAL
+    message: >-
+      Direct assignment to innerHTML/outerHTML with potentially untrusted
+      data. Use textContent for plain text or a sanitization library
+      like DOMPurify.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.xss.dangerouslySetInnerHTML
+    pattern: dangerouslySetInnerHTML={$VAL}
+    message: >-
+      React dangerouslySetInnerHTML with dynamic value. Sanitize the
+      HTML with DOMPurify before rendering to prevent XSS.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.xss.document-write
+    pattern-either:
+      - pattern: document.write($VAL)
+      - pattern: document.writeln($VAL)
+    message: >-
+      document.write() with dynamic content enables XSS. Use DOM
+      manipulation methods with proper escaping instead.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.xss.res-send-unsanitized
+    patterns:
+      - pattern-either:
+          - pattern: $RES.send(`...${$VAR}...`)
+          - pattern: $RES.write(`...${$VAR}...`)
+      - pattern-not-inside: |
+          $RES.setHeader('Content-Type', 'application/json');
+          ...
+    message: >-
+      HTTP response with interpolated user data. If Content-Type is
+      text/html, this enables reflected XSS. Set Content-Type to
+      application/json or escape the output.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: LOW
+
+  # ── Python XSS ──────────────────────────────────────────────────────
+  - id: safeweave.python.xss.mark-safe
+    pattern: mark_safe($VAL)
+    message: >-
+      Django mark_safe() on potentially untrusted input bypasses
+      auto-escaping and enables XSS.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.python.xss.jinja-autoescape-off
+    pattern: |
+      {% autoescape false %}
+      ...
+      {% endautoescape %}
+    message: >-
+      Jinja2 autoescape disabled — all template variables will be
+      rendered without HTML escaping, enabling XSS.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      cwe: ["CWE-79"]
+      category: security
+      confidence: HIGH

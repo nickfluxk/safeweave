@@ -11,6 +11,10 @@
     "build": "npm run build --workspaces",
     "clean": "npm run clean --workspaces"
   },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^20.0.0"
+  },
   "engines": {
     "node": ">=20.0.0"
   }

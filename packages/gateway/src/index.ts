@@ -3,7 +3,7 @@ import { startHttpBridge } from './http-bridge.js';
 
 const projectDir = process.argv[2] || process.cwd();
 
-// Start HTTP bridge for CLI / CI usage
+// Start HTTP bridge + MCP SSE server
 startHttpBridge(projectDir);
 
 // Start MCP stdio server for IDE integration (only when stdin is not a TTY,

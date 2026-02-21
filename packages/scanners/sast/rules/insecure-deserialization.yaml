@@ -1,0 +1,177 @@
+rules:
+  # ── Python Deserialization (Critical RCE vectors) ───────────────────
+  - id: safeweave.python.deser.pickle-load
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+      - pattern: cPickle.load(...)
+      - pattern: cPickle.loads(...)
+    message: >-
+      pickle.load() on untrusted data enables arbitrary code execution.
+      Use JSON, MessagePack, or Protocol Buffers for serialization.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.deser.yaml-unsafe-load
+    patterns:
+      - pattern: yaml.load($INPUT, ...)
+      - pattern-not: yaml.load($INPUT, Loader=yaml.SafeLoader)
+      - pattern-not: yaml.load($INPUT, Loader=yaml.BaseLoader)
+    message: >-
+      yaml.load() without SafeLoader can execute arbitrary Python
+      objects. Use yaml.safe_load() or yaml.load(data, Loader=SafeLoader).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.deser.shelve-open
+    pattern: shelve.open(...)
+    message: >-
+      shelve uses pickle internally. Opening untrusted shelf files
+      enables arbitrary code execution.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-502"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.deser.marshal-loads
+    pattern: marshal.loads(...)
+    message: >-
+      marshal.loads() on untrusted data can crash the interpreter or
+      execute malicious bytecode. Use JSON for deserialization.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-502"]
+      category: security
+      confidence: HIGH
+
+  # ── Java Deserialization (Critical RCE) ─────────────────────────────
+  - id: safeweave.java.deser.objectinputstream
+    pattern-either:
+      - pattern: new ObjectInputStream(...)
+      - pattern: $OIS.readObject()
+    message: >-
+      Java ObjectInputStream deserialization is a well-known RCE vector.
+      Use JSON, Protocol Buffers, or implement ObjectInputFilter to
+      restrict allowed classes.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.java.deser.xmldecoder
+    pattern: new XMLDecoder(...)
+    message: >-
+      XMLDecoder can deserialize arbitrary Java objects. Use a safe
+      XML parser with entity restrictions.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-502"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.java.deser.xstream-unsafe
+    patterns:
+      - pattern: $XSTREAM.fromXML(...)
+      - pattern-not-inside: |
+          $XSTREAM.allowTypes(...);
+          ...
+    message: >-
+      XStream deserialization without allowTypes restriction enables
+      arbitrary code execution. Configure allowed types explicitly.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-502"]
+      category: security
+      confidence: MEDIUM
+
+  # ── .NET Deserialization ────────────────────────────────────────────
+  - id: safeweave.csharp.deser.binaryformatter
+    pattern-either:
+      - pattern: new BinaryFormatter()
+      - pattern: $BF.Deserialize(...)
+    message: >-
+      BinaryFormatter deserialization is a critical RCE vulnerability.
+      Use System.Text.Json or another safe serializer. BinaryFormatter
+      is deprecated in .NET 7+.
+    severity: ERROR
+    languages: [csharp]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── PHP Deserialization ─────────────────────────────────────────────
+  - id: safeweave.php.deser.unserialize
+    pattern: unserialize($INPUT, ...)
+    message: >-
+      unserialize() on untrusted data enables code execution via PHP
+      magic methods (__wakeup, __destruct). Use json_decode() instead.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Ruby Deserialization ────────────────────────────────────────────
+  - id: safeweave.ruby.deser.marshal-load
+    pattern-either:
+      - pattern: Marshal.load(...)
+      - pattern: Marshal.restore(...)
+    message: >-
+      Marshal.load on untrusted data enables arbitrary code execution.
+      Use JSON.parse() for deserialization of external data.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: ["CWE-502"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.ruby.deser.yaml-load
+    pattern: YAML.load($INPUT, ...)
+    message: >-
+      YAML.load can instantiate arbitrary Ruby objects. Use
+      YAML.safe_load() for untrusted input.
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: ["CWE-502"]
+      category: security
+      confidence: HIGH
+
+  # ── Node.js Deserialization ─────────────────────────────────────────
+  - id: safeweave.node.deser.node-serialize
+    pattern-either:
+      - pattern: serialize.unserialize(...)
+      - pattern: $NS.unserialize(...)
+    message: >-
+      node-serialize unserialize() executes JavaScript in serialized
+      objects. This is a direct RCE vulnerability. Remove this library.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021"]
+      category: security
+      confidence: HIGH

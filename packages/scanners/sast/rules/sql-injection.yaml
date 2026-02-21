@@ -1,0 +1,92 @@
+rules:
+  # ── SQL Injection ───────────────────────────────────────────────────
+  - id: safeweave.node.sqli.template-literal-query
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query(`...${$VAR}...`)
+          - pattern: $DB.query(`...${$VAR}...`, ...)
+          - pattern: $DB.execute(`...${$VAR}...`)
+          - pattern: $DB.raw(`...${$VAR}...`)
+          - pattern: $KNEX.raw(`...${$VAR}...`)
+          - pattern: $POOL.query(`...${$VAR}...`)
+    message: >-
+      SQL query built with template literal interpolation. Use
+      parameterized queries ($1, ?) to prevent SQL injection.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.node.sqli.string-concat-query
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query($A + $B)
+          - pattern: $DB.query($A + $B + $C)
+          - pattern: $DB.execute($A + $B)
+    message: >-
+      SQL query built with string concatenation. Use parameterized
+      queries to prevent SQL injection.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Python SQL Injection ────────────────────────────────────────────
+  - id: safeweave.python.sqli.execute-fstring
+    patterns:
+      - pattern-either:
+          - pattern: $CURSOR.execute(f"...{$VAR}...")
+          - pattern: $CURSOR.execute("..." + $VAR + "...")
+          - pattern: $CURSOR.execute("...%s..." % $VAR)
+    message: >-
+      SQL query with string formatting. Use parameterized queries:
+      cursor.execute("SELECT ... WHERE id = %s", (id,))
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Go SQL Injection ────────────────────────────────────────────────
+  - id: safeweave.go.sqli.sprintf-query
+    patterns:
+      - pattern-either:
+          - pattern: $DB.Query(fmt.Sprintf("...", $VAR))
+          - pattern: $DB.Exec(fmt.Sprintf("...", $VAR))
+          - pattern: $DB.QueryRow(fmt.Sprintf("...", $VAR))
+    message: >-
+      SQL query built with fmt.Sprintf. Use parameterized queries:
+      db.Query("SELECT ... WHERE id = $1", id)
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Java SQL Injection ──────────────────────────────────────────────
+  - id: safeweave.java.sqli.string-concat
+    patterns:
+      - pattern-either:
+          - pattern: $STMT.executeQuery("..." + $VAR + "...")
+          - pattern: $STMT.execute("..." + $VAR + "...")
+          - pattern: $CON.createStatement().executeQuery("..." + $VAR + "...")
+    message: >-
+      SQL query built with string concatenation. Use PreparedStatement
+      with parameterized queries instead.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH

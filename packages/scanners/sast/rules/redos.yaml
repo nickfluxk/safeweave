@@ -1,0 +1,49 @@
+rules:
+  # ── Regular Expression Denial of Service (ReDoS) ────────────────────
+  - id: safeweave.node.redos.nested-quantifiers
+    pattern-regex: "new RegExp\\(['\"].*[+*].*[+*].*['\"]"
+    message: >-
+      Regular expression with nested quantifiers detected. Patterns like
+      (a+)+ or (a*)*b can cause catastrophic backtracking (ReDoS). Use
+      atomic groups, possessive quantifiers, or the re2 library.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-1333"]
+      owasp: ["A06:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.redos.user-input-regex
+    patterns:
+      - pattern-either:
+          - pattern: new RegExp($INPUT)
+          - pattern: new RegExp($INPUT, $FLAGS)
+    message: >-
+      RegExp constructed from dynamic input. An attacker can craft a
+      malicious pattern causing catastrophic backtracking (ReDoS). Use
+      a regex-safe library or escape special characters.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-1333"]
+      owasp: ["A06:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Python ReDoS ────────────────────────────────────────────────────
+  - id: safeweave.python.redos.user-input-regex
+    patterns:
+      - pattern-either:
+          - pattern: re.compile($INPUT)
+          - pattern: re.match($INPUT, ...)
+          - pattern: re.search($INPUT, ...)
+    message: >-
+      Regex pattern from dynamic input. Use re2 library or set
+      re.TIMEOUT to prevent catastrophic backtracking.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-1333"]
+      category: security
+      confidence: LOW

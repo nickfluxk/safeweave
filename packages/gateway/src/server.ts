@@ -8,11 +8,72 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { join, extname } from 'node:path';
 import type { Finding, ScanResult, Severity } from '@safeweave/common';
 import { loadConfig } from './config.js';
 import { Router } from './router/index.js';
 import { ProfileManager } from './profiles/index.js';
+
+// Map host filesystem paths to container mount paths.
+// Docker volume: ${SCAN_DIR:-/Users}:/scan:ro
+// So /Users/foo/bar → /scan/foo/bar
+const SCAN_MOUNT = process.env.SCAN_MOUNT || '/scan';
+const SCAN_DIR = process.env.SCAN_DIR || '/Users';
+
+function toContainerPath(hostPath: string): string {
+  // If the path already starts with the mount point, return as-is
+  if (hostPath.startsWith(SCAN_MOUNT + '/') || hostPath === SCAN_MOUNT) return hostPath;
+  // If the path starts with the host scan dir, translate it
+  if (hostPath.startsWith(SCAN_DIR + '/')) {
+    return SCAN_MOUNT + hostPath.slice(SCAN_DIR.length);
+  }
+  // If it starts with / and the translated version exists, use it
+  const translated = SCAN_MOUNT + hostPath;
+  if (existsSync(translated)) return translated;
+  // Fall back to original path
+  return hostPath;
+}
+
+// Recursively collect source files from a directory for scanning
+const SOURCE_EXTS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.java', '.go', '.rb', '.php', '.rs',
+  '.c', '.cpp', '.h', '.hpp', '.cs', '.swift',
+  '.yaml', '.yml', '.json', '.toml', '.xml',
+  '.tf', '.hcl', '.dockerfile',
+  '.sh', '.bash', '.zsh',
+]);
+
+function collectFiles(dir: string, maxFiles = 5000): Array<{ path: string; content: string }> {
+  const files: Array<{ path: string; content: string }> = [];
+  const walk = (d: string) => {
+    if (files.length >= maxFiles) return;
+    let entries;
+    try { entries = readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (files.length >= maxFiles) break;
+      const fullPath = join(d, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === '__pycache__' || entry.name === 'vendor') continue;
+        walk(fullPath);
+      } else if (entry.isFile()) {
+        const ext = extname(entry.name).toLowerCase();
+        const basename = entry.name.toLowerCase();
+        if (SOURCE_EXTS.has(ext) || basename === 'dockerfile' || basename === 'makefile') {
+          try {
+            const stat = statSync(fullPath);
+            if (stat.size > 1024 * 1024) continue; // Skip files > 1MB
+            const content = readFileSync(fullPath, 'utf-8');
+            files.push({ path: fullPath, content });
+          } catch { /* skip unreadable files */ }
+        }
+      }
+    }
+  };
+  walk(dir);
+  return files;
+}
 
 export function createServer(projectDir: string): Server {
   const config = loadConfig(projectDir);
@@ -142,6 +203,16 @@ export function createServer(projectDir: string): Server {
           },
         },
       },
+      {
+        name: 'check_posture',
+        description: 'Check API security posture — detect missing auth, rate limiting, security headers, CORS misconfig, missing input validation, and other security control gaps',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            directory: { type: 'string', description: 'Project root directory' },
+          },
+        },
+      },
     ],
   }));
 
@@ -153,11 +224,12 @@ export function createServer(projectDir: string): Server {
     switch (name) {
       case 'scan_file': {
         const filePath = params.file_path;
+        const containerPath = toContainerPath(filePath);
         let content: string | undefined;
         try {
-          content = readFileSync(filePath, 'utf-8');
+          content = readFileSync(containerPath, 'utf-8');
         } catch {
-          return { content: [{ type: 'text', text: JSON.stringify({ error: `Cannot read file: ${filePath}` }) }], isError: true };
+          return { content: [{ type: 'text', text: JSON.stringify({ error: `Cannot read file: ${filePath} (resolved to ${containerPath})` }) }], isError: true };
         }
         const result = await router.scanWith('sast', {
           files: [{ path: filePath, content }],
@@ -170,10 +242,12 @@ export function createServer(projectDir: string): Server {
 
       case 'scan_project': {
         const dir = params.directory || projectDir;
+        const containerDir = toContainerPath(dir);
+        const files = collectFiles(containerDir);
         const result = await router.scanAll({
-          files: [{ path: dir }],
+          files: files.length > 0 ? files : [{ path: containerDir }],
           profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: dir },
+          context: { rootDir: containerDir },
         });
         lastFindings = result.findings;
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -181,10 +255,11 @@ export function createServer(projectDir: string): Server {
 
       case 'scan_dependencies': {
         const dir = params.directory || projectDir;
+        const containerDir = toContainerPath(dir);
         const result = await router.scanWith('deps', {
           files: [{ path: 'package.json' }],
           profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: dir },
+          context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -237,10 +312,11 @@ export function createServer(projectDir: string): Server {
 
       case 'scan_iac': {
         const dir = params.directory || projectDir;
+        const containerDir = toContainerPath(dir);
         const result = await router.scanWith('iac', {
-          files: [{ path: dir }],
+          files: [{ path: containerDir }],
           profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: dir },
+          context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -248,10 +324,11 @@ export function createServer(projectDir: string): Server {
 
       case 'check_container': {
         const dir = params.directory || projectDir;
+        const containerDir = toContainerPath(dir);
         const result = await router.scanWith('container', {
-          files: [{ path: dir }],
+          files: [{ path: containerDir }],
           profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: dir },
+          context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -259,10 +336,11 @@ export function createServer(projectDir: string): Server {
 
       case 'check_license': {
         const dir = params.directory || projectDir;
+        const containerDir = toContainerPath(dir);
         const result = await router.scanWith('license', {
-          files: [{ path: dir }],
+          files: [{ path: containerDir }],
           profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: dir },
+          context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
@@ -270,10 +348,23 @@ export function createServer(projectDir: string): Server {
 
       case 'dast_check': {
         const dir = params.directory || projectDir;
+        const containerDir = toContainerPath(dir);
         const result = await router.scanWith('dast', {
-          files: [{ path: dir }],
+          files: [{ path: containerDir }],
           profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: dir, target_url: params.target_url },
+          context: { rootDir: containerDir, target_url: params.target_url },
+        });
+        lastFindings = [...lastFindings, ...result.findings];
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      }
+
+      case 'check_posture': {
+        const dir = params.directory || projectDir;
+        const containerDir = toContainerPath(dir);
+        const result = await router.scanWith('posture', {
+          files: [{ path: containerDir }],
+          profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
+          context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };

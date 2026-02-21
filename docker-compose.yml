@@ -5,6 +5,8 @@ services:
       dockerfile: docker/Dockerfile.gateway
     ports:
       - "9000:9000"
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
     environment:
       - SCANNER_SAST_HOST=sast
       - SCANNER_SAST_PORT=9001
@@ -27,6 +29,11 @@ services:
       - SCANNER_LICENSE_HOST=license-scanner
       - SCANNER_LICENSE_PORT=9007
       - SCANNER_LICENSE_ENABLED=true
+      - SCANNER_POSTURE_HOST=posture
+      - SCANNER_POSTURE_PORT=9008
+      - SCANNER_POSTURE_ENABLED=true
+      - SCAN_MOUNT=/scan
+      - SCAN_DIR=${SCAN_DIR:-/Users}
     depends_on:
       - sast
       - deps
@@ -35,38 +42,60 @@ services:
       - container-scanner
       - dast
       - license-scanner
+      - posture
 
   sast:
     build: packages/scanners/sast
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
     environment:
       - PORT=9001
 
   deps:
     build: packages/scanners/deps
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
     environment:
       - PORT=9002
 
   secrets:
     build: packages/scanners/secrets
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
     environment:
       - PORT=9003
 
   iac:
     build: packages/scanners/iac
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
     environment:
       - PORT=9004
 
   container-scanner:
     build: packages/scanners/container
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
     environment:
       - PORT=9005
 
   dast:
     build: packages/scanners/dast
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
     environment:
       - PORT=9006
 
   license-scanner:
     build: packages/scanners/license
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
     environment:
       - PORT=9007
+
+  posture:
+    build: packages/scanners/posture
+    volumes:
+      - ${SCAN_DIR:-/Users}:/scan:ro
+    environment:
+      - PORT=9008

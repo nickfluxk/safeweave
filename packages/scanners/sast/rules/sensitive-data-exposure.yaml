@@ -1,0 +1,170 @@
+rules:
+  # ── Logging Sensitive Data ──────────────────────────────────────────
+  - id: safeweave.node.data.log-password
+    pattern-either:
+      - pattern: console.log(..., $OBJ.password, ...)
+      - pattern: console.log(`...${$OBJ.password}...`)
+      - pattern: $LOGGER.info(..., $OBJ.password, ...)
+      - pattern: console.log(..., password, ...)
+    message: >-
+      Password logged to console or logger. Sensitive data must never
+      appear in logs. Mask or redact credentials before logging.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.data.log-token
+    pattern-either:
+      - pattern: console.log(..., $OBJ.token, ...)
+      - pattern: console.log(..., $OBJ.accessToken, ...)
+      - pattern: console.log(..., $OBJ.refreshToken, ...)
+      - pattern: console.log(`...${$OBJ.token}...`)
+      - pattern: $LOGGER.info(..., $OBJ.token, ...)
+    message: >-
+      Authentication token logged. Tokens in logs enable session
+      hijacking. Redact sensitive fields before logging.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.data.log-secret
+    pattern-either:
+      - pattern: console.log(..., $OBJ.secret, ...)
+      - pattern: console.log(..., $OBJ.apiKey, ...)
+      - pattern: console.log(..., $OBJ.privateKey, ...)
+      - pattern: console.log(..., $OBJ.secretKey, ...)
+    message: >-
+      Secret or API key logged. Remove sensitive data from log output.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Sensitive Data in URLs ──────────────────────────────────────────
+  - id: safeweave.node.data.secret-in-url
+    pattern-either:
+      - pattern: |
+          "...$URL?...password=..."
+      - pattern: |
+          `...?...token=${$TOKEN}...`
+      - pattern: |
+          `...?...api_key=${$KEY}...`
+    message: >-
+      Sensitive data in URL query parameters. URL parameters appear in
+      server logs, browser history, and referrer headers. Use request
+      body or headers for credentials.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-598"]
+      owasp: ["A04:2021"]
+      category: security
+      confidence: LOW
+
+  # ── Cleartext Storage ───────────────────────────────────────────────
+  - id: safeweave.node.data.cleartext-password-store
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.save({ ..., password: $INPUT, ... })
+          - pattern: |
+              $DB.create({ ..., password: $INPUT, ... })
+          - pattern: |
+              $DB.insert({ ..., password: $INPUT, ... })
+      - pattern-not-inside: |
+          $HASHED = await bcrypt.hash(...);
+          ...
+      - pattern-not-inside: |
+          $HASHED = await argon2.hash(...);
+          ...
+    message: >-
+      Password stored without hashing. Always hash passwords with
+      bcrypt, argon2, or scrypt before storage.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-312"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: LOW
+
+  # ── Error Details Exposed ───────────────────────────────────────────
+  - id: safeweave.node.data.stack-trace-response
+    patterns:
+      - pattern-either:
+          - pattern: $RES.send($ERR.stack)
+          - pattern: |
+              $RES.json({ ..., stack: $ERR.stack, ... })
+          - pattern: |
+              $RES.json({ ..., error: $ERR.message, ... })
+    message: >-
+      Stack trace or internal error message sent in HTTP response.
+      Return generic error messages to clients. Log details server-side.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-209"]
+      owasp: ["A09:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Python Sensitive Data ───────────────────────────────────────────
+  - id: safeweave.python.data.log-password
+    pattern-either:
+      - pattern: logging.info(..., password, ...)
+      - pattern: logger.info(..., password, ...)
+      - pattern: print(..., password, ...)
+    message: >-
+      Password logged or printed. Redact sensitive data before logging.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-532"]
+      owasp: ["A09:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.python.data.cleartext-password
+    patterns:
+      - pattern-either:
+          - pattern: $OBJ.password = $INPUT
+          - pattern: |
+              User(..., password=$INPUT, ...)
+      - pattern-not-inside: |
+          $HASHED = make_password(...)
+          ...
+    message: >-
+      Password stored without hashing. Use make_password() (Django) or
+      bcrypt.hashpw() before storage.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-312"]
+      category: security
+      confidence: LOW
+
+  # ── Go Sensitive Data ───────────────────────────────────────────────
+  - id: safeweave.go.data.log-password
+    pattern-either:
+      - pattern: log.Printf("...password...", ...)
+      - pattern: log.Println("...password...", $PW)
+      - pattern: fmt.Printf("...password...", ...)
+    message: >-
+      Potential password in log output. Redact sensitive fields.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-532"]
+      category: security
+      confidence: LOW

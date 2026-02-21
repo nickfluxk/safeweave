@@ -6,8 +6,8 @@ COPY package.json tsconfig.json ./
 COPY packages/common/package.json packages/common/
 COPY packages/gateway/package.json packages/gateway/
 
-# Install dependencies
-RUN npm install --workspaces
+# Install all dependencies (including dev for TypeScript)
+RUN npm install
 
 # Copy source and build
 COPY packages/common/ packages/common/

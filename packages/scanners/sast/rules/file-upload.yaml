@@ -1,0 +1,84 @@
+rules:
+  # ── Unrestricted File Upload ────────────────────────────────────────
+  - id: safeweave.node.upload.no-type-check
+    patterns:
+      - pattern-either:
+          - pattern: multer({ ... })
+          - pattern: multer.diskStorage({ ... })
+      - pattern-not-inside: |
+          $UPLOAD = multer({
+            ...,
+            fileFilter: $FUNC,
+            ...
+          });
+    message: >-
+      multer file upload without fileFilter. Attackers can upload
+      executable files (.php, .jsp, .sh). Add a fileFilter that
+      validates file extensions and MIME types.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-434"]
+      owasp: ["A04:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.upload.no-size-limit
+    patterns:
+      - pattern: multer({ ... })
+      - pattern-not-inside: |
+          multer({ ..., limits: { ... }, ... })
+    message: >-
+      multer file upload without size limits. Add limits: { fileSize:
+      MAX_SIZE } to prevent denial of service via large uploads.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-400"]
+      owasp: ["A04:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.upload.original-filename
+    pattern-either:
+      - pattern: $REQ.file.originalname
+      - pattern: $FILE.originalname
+    message: >-
+      Using original filename from upload. File names can contain path
+      traversal sequences (../../evil.sh). Generate a safe random
+      filename server-side.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-434"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Python File Upload ──────────────────────────────────────────────
+  - id: safeweave.python.upload.werkzeug-unsafe
+    pattern: $FILE.save($PATH)
+    message: >-
+      Saving uploaded file without validating filename or extension.
+      Use werkzeug.utils.secure_filename() and validate MIME type.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-434"]
+      category: security
+      confidence: LOW
+
+  # ── Java File Upload ────────────────────────────────────────────────
+  - id: safeweave.java.upload.no-validation
+    patterns:
+      - pattern: $PART.write($PATH)
+      - pattern-not-inside: |
+          if (...) { ... }
+    message: >-
+      File upload written without content type validation. Check MIME
+      type and file extension before saving.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-434"]
+      category: security
+      confidence: LOW
