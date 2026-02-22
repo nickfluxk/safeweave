@@ -102,11 +102,15 @@ export function startHttpBridge(projectDir: string): void {
       }
 
       if (req.method === 'POST' && req.url === '/api/scan') {
-        // Validate license before scanning
-        const validation = await licenseClient.validate(LICENSE_KEY);
-        if (!validation.valid) {
-          sendJson(res, 403, { error: 'Invalid or expired license key. Visit https://safeweave.dev to get a valid key.' });
-          return;
+        // Validate license before scanning (skip if server unreachable)
+        try {
+          const validation = await licenseClient.validate(LICENSE_KEY);
+          if (!validation.valid) {
+            sendJson(res, 403, { error: 'Invalid or expired license key. Visit https://safeweave.dev to get a valid key.' });
+            return;
+          }
+        } catch {
+          // License server unreachable — allow scan in offline mode
         }
 
         let rawBody: string;

@@ -25,26 +25,22 @@ export class LicenseClient {
       return cached.result;
     }
 
-    try {
-      const res = await fetch(`${this.serverUrl}/api/v1/validate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key }),
-        signal: AbortSignal.timeout(5000),
-      });
+    const res = await fetch(`${this.serverUrl}/api/v1/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+      signal: AbortSignal.timeout(5000),
+    });
 
-      if (!res.ok) return INVALID_RESULT;
+    if (!res.ok) return INVALID_RESULT;
 
-      const result = (await res.json()) as LicenseValidation;
+    const result = (await res.json()) as LicenseValidation;
 
-      if (result.valid) {
-        this.cache.set(key, { result, expiry: Date.now() + CACHE_TTL_MS });
-      }
-
-      return result;
-    } catch {
-      return INVALID_RESULT;
+    if (result.valid) {
+      this.cache.set(key, { result, expiry: Date.now() + CACHE_TTL_MS });
     }
+
+    return result;
   }
 
   async isFeatureAllowed(key: string | undefined, feature: string): Promise<boolean> {

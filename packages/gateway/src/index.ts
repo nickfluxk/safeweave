@@ -16,15 +16,20 @@ async function main() {
   // Validate the license key against the cloud server
   const licenseClient = new LicenseClient(LICENSE_SERVER_URL);
   console.log('Validating license key...');
-  const validation = await licenseClient.validate(LICENSE_KEY);
+  try {
+    const validation = await licenseClient.validate(LICENSE_KEY);
 
-  if (!validation.valid) {
-    console.error('ERROR: Invalid license key. Please check your SAFEWEAVE_LICENSE_KEY.');
-    console.error('Get a valid key at https://safeweave.dev/signup');
-    process.exit(1);
+    if (!validation.valid) {
+      console.error('ERROR: Invalid license key. Please check your SAFEWEAVE_LICENSE_KEY.');
+      console.error('Get a valid key at https://safeweave.dev/signup');
+      process.exit(1);
+    }
+
+    console.log(`License validated: plan=${validation.plan}`);
+  } catch {
+    console.warn('WARNING: Could not reach license server at ' + LICENSE_SERVER_URL);
+    console.warn('Starting in offline mode — scans will run but usage will not be reported.');
   }
-
-  console.log(`License validated: plan=${validation.plan}`);
 
   const projectDir = process.argv[2] || process.cwd();
 
