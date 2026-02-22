@@ -7,10 +7,28 @@ AI-native security scanning with 7 scanners, MCP integration, and compliance pro
 ```bash
 git clone https://github.com/nickfluxk/safeweave.git
 cd safeweave
+cp .env.example .env
+```
+
+Edit `.env` with your license key and scan directory:
+
+```bash
+# .env
+SAFEWEAVE_LICENSE_KEY=your-license-key-here
+SCAN_DIR=/Users          # macOS
+# SCAN_DIR=/home         # Linux
+# SCAN_DIR=/mnt/c/Users  # Windows (WSL/Docker Desktop)
+```
+
+Then start the services:
+
+```bash
 docker compose up
 ```
 
-That's it. All 7 scanners will be available at `http://localhost:9000`.
+All 7 scanners will be available at `http://localhost:9000`.
+
+> **Get your license key** at [safeweave.dev/signup](https://safeweave.dev/signup). The gateway will not start without a valid key.
 
 ## What's Included
 
@@ -32,7 +50,7 @@ Add SafeWeave to your AI editor (Cursor, Claude Code, VS Code, Windsurf):
 {
   "mcpServers": {
     "safeweave": {
-      "url": "http://localhost:9000/mcp"
+      "url": "http://localhost:9000/sse"
     }
   }
 }
@@ -69,7 +87,17 @@ Set via MCP `set_profile` tool or create a custom `.safeweave/profile.yaml` in y
 
 ## Configuration
 
-Override scanner addresses with environment variables:
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SAFEWEAVE_LICENSE_KEY` | Yes | Your license key from [safeweave.dev](https://safeweave.dev) |
+| `SCAN_DIR` | Yes | Host directory to mount for scanning |
+| `SAFEWEAVE_LICENSE_URL` | No | License server URL (defaults to `https://license.safeweave.dev`) |
+
+### Scanner Addresses
+
+Override scanner addresses if running scanners separately:
 
 ```bash
 SCANNER_SAST_HOST=my-sast-host

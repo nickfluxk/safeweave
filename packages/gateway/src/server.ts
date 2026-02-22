@@ -14,6 +14,7 @@ import type { Finding, ScanResult, Severity } from '@safeweave/common';
 import { loadConfig } from './config.js';
 import { Router } from './router/index.js';
 import { ProfileManager } from './profiles/index.js';
+import { LicenseClient } from './license.js';
 
 // Map host filesystem paths to container mount paths.
 // Docker volume: ${SCAN_DIR:-/Users}:/scan:ro
@@ -75,10 +76,14 @@ function collectFiles(dir: string, maxFiles = 5000): Array<{ path: string; conte
   return files;
 }
 
+const LICENSE_SERVER_URL = process.env.SAFEWEAVE_LICENSE_URL || 'https://license.safeweave.dev';
+const LICENSE_KEY = process.env.SAFEWEAVE_LICENSE_KEY || '';
+
 export function createServer(projectDir: string): Server {
   const config = loadConfig(projectDir);
   const router = new Router(config);
   const profileManager = new ProfileManager();
+  const licenseClient = new LicenseClient(LICENSE_SERVER_URL);
   let lastFindings: Finding[] = [];
 
   const server = new Server(
@@ -237,6 +242,7 @@ export function createServer(projectDir: string): Server {
           context: { rootDir: projectDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
+        licenseClient.reportUsage(LICENSE_KEY, 'sast', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
@@ -250,6 +256,7 @@ export function createServer(projectDir: string): Server {
           context: { rootDir: containerDir },
         });
         lastFindings = result.findings;
+        licenseClient.reportUsage(LICENSE_KEY, 'all', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
@@ -262,6 +269,7 @@ export function createServer(projectDir: string): Server {
           context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
+        licenseClient.reportUsage(LICENSE_KEY, 'deps', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
@@ -319,6 +327,7 @@ export function createServer(projectDir: string): Server {
           context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
+        licenseClient.reportUsage(LICENSE_KEY, 'iac', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
@@ -331,6 +340,7 @@ export function createServer(projectDir: string): Server {
           context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
+        licenseClient.reportUsage(LICENSE_KEY, 'container', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
@@ -343,6 +353,7 @@ export function createServer(projectDir: string): Server {
           context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
+        licenseClient.reportUsage(LICENSE_KEY, 'license', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
@@ -355,6 +366,7 @@ export function createServer(projectDir: string): Server {
           context: { rootDir: containerDir, target_url: params.target_url },
         });
         lastFindings = [...lastFindings, ...result.findings];
+        licenseClient.reportUsage(LICENSE_KEY, 'dast', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
@@ -367,6 +379,7 @@ export function createServer(projectDir: string): Server {
           context: { rootDir: containerDir },
         });
         lastFindings = [...lastFindings, ...result.findings];
+        licenseClient.reportUsage(LICENSE_KEY, 'posture', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 

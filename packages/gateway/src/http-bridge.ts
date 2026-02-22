@@ -4,8 +4,11 @@ import { Router } from './router/index.js';
 import { ProfileManager } from './profiles/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { createServer as createMcpServer } from './server.js';
+import { LicenseClient } from './license.js';
 
 const MAX_BODY_SIZE = 5 * 1024 * 1024; // 5 MB
+const LICENSE_SERVER_URL = process.env.SAFEWEAVE_LICENSE_URL || 'https://license.safeweave.dev';
+const LICENSE_KEY = process.env.SAFEWEAVE_LICENSE_KEY || '';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -38,6 +41,7 @@ export function startHttpBridge(projectDir: string): void {
   const config = loadConfig(projectDir);
   const router = new Router(config);
   const profileManager = new ProfileManager();
+  const licenseClient = new LicenseClient(LICENSE_SERVER_URL);
 
   const host = config.gateway.host;
   const port = config.gateway.port;
@@ -98,6 +102,13 @@ export function startHttpBridge(projectDir: string): void {
       }
 
       if (req.method === 'POST' && req.url === '/api/scan') {
+        // Validate license before scanning
+        const validation = await licenseClient.validate(LICENSE_KEY);
+        if (!validation.valid) {
+          sendJson(res, 403, { error: 'Invalid or expired license key. Visit https://safeweave.dev to get a valid key.' });
+          return;
+        }
+
         let rawBody: string;
         try {
           rawBody = await readBody(req);
@@ -139,6 +150,11 @@ export function startHttpBridge(projectDir: string): void {
           },
           requestedScanners,
         );
+
+        // Report scan usage to cloud license server (fire-and-forget)
+        const scannerLabel = body.scanners?.join(',') || 'all';
+        const durationMs = typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0;
+        licenseClient.reportUsage(LICENSE_KEY, scannerLabel, result.findings, durationMs);
 
         sendJson(res, 200, result);
         return;
