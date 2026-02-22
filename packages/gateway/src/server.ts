@@ -17,10 +17,10 @@ import { ProfileManager } from './profiles/index.js';
 import { LicenseClient } from './license.js';
 
 // Map host filesystem paths to container mount paths.
-// Docker volume: ${SCAN_DIR:-/Users}:/scan:ro
-// So /Users/foo/bar → /scan/foo/bar
+// Docker volume: ${SCAN_DIR}:/scan:ro
+// e.g. SCAN_DIR=/Users/nitesh → /Users/nitesh/projects/app → /scan/projects/app
 const SCAN_MOUNT = process.env.SCAN_MOUNT || '/scan';
-const SCAN_DIR = process.env.SCAN_DIR || '/Users';
+const SCAN_DIR = process.env.SCAN_DIR || '';
 
 function toContainerPath(hostPath: string): string {
   // If the path already starts with the mount point, return as-is

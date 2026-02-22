@@ -15,9 +15,9 @@ Edit `.env` with your license key and scan directory:
 ```bash
 # .env
 SAFEWEAVE_LICENSE_KEY=your-license-key-here
-SCAN_DIR=/Users          # macOS
-# SCAN_DIR=/home         # Linux
-# SCAN_DIR=/mnt/c/Users  # Windows (WSL/Docker Desktop)
+SCAN_DIR=/Users/yourname/projects          # macOS
+# SCAN_DIR=/home/yourname/projects         # Linux
+# SCAN_DIR=/mnt/c/Users/yourname/projects  # Windows (WSL/Docker Desktop)
 ```
 
 Then start the services:
@@ -92,7 +92,7 @@ Set via MCP `set_profile` tool or create a custom `.safeweave/profile.yaml` in y
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SAFEWEAVE_LICENSE_KEY` | Yes | Your license key from [safeweave.dev](https://safeweave.dev) |
-| `SCAN_DIR` | Yes | Host directory to mount for scanning |
+| `SCAN_DIR` | Yes | Host directory to mount for scanning (e.g. your projects folder) |
 | `SAFEWEAVE_LICENSE_URL` | No | License server URL (defaults to `https://license.safeweave.dev`) |
 
 ### Scanner Addresses
