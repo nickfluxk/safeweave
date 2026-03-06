@@ -37,9 +37,19 @@ export interface ScanRequest {
   context: ProjectContext;
 }
 
+export interface ScannerStatus {
+  scanner: string;
+  status: 'completed' | 'skipped' | 'error';
+  findings_count: number;
+  severity_counts: Record<Severity, number>;
+  duration_ms: number;
+  reason?: string;
+}
+
 export interface ScanResult {
   findings: Finding[];
   metadata: ScanMetadata;
+  scanner_results?: ScannerStatus[];
 }
 
 export interface ScanMetadata {
