@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { Finding, ScanRequest } from '@safeweave/common';
+import { resolveBinary } from '@safeweave/common';
 
 function mapTrivySeverity(severity: string): Finding['severity'] {
   switch (severity?.toUpperCase()) {
@@ -11,10 +12,17 @@ function mapTrivySeverity(severity: string): Finding['severity'] {
   }
 }
 
-export function runTrivyVuln(request: ScanRequest): Promise<Finding[]> {
+export async function runTrivyVuln(request: ScanRequest): Promise<Finding[]> {
+  const bin = await resolveBinary('trivy');
+  if (!bin) return [];
+
   const rootDir = request.context.rootDir || process.cwd();
+  return executeTrivyVuln(bin, rootDir);
+}
+
+function executeTrivyVuln(binaryPath: string, rootDir: string): Promise<Finding[]> {
   return new Promise((resolve) => {
-    execFile('trivy', ['fs', '--scanners', 'vuln', '--format', 'json', rootDir],
+    execFile(binaryPath, ['fs', '--scanners', 'vuln', '--format', 'json', rootDir],
       { timeout: 120_000, maxBuffer: 10 * 1024 * 1024 },
       (_error, stdout) => {
         if (!stdout) { resolve([]); return; }

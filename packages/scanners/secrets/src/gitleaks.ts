@@ -3,8 +3,12 @@ import { writeFileSync, mkdtempSync, mkdirSync, rmSync, readFileSync } from 'nod
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ScanRequest, Finding } from '@safeweave/common';
+import { resolveBinary } from '@safeweave/common';
 
 export async function runGitleaks(request: ScanRequest): Promise<Finding[]> {
+  const bin = await resolveBinary('gitleaks');
+  if (!bin) return [];
+
   const tempDir = mkdtempSync(join(tmpdir(), 'safeweave-secrets-'));
 
   try {
@@ -16,23 +20,23 @@ export async function runGitleaks(request: ScanRequest): Promise<Finding[]> {
       }
     }
 
-    return await executeGitleaks(tempDir);
+    return await executeGitleaks(bin, tempDir);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
-function executeGitleaks(targetDir: string): Promise<Finding[]> {
+function executeGitleaks(binaryPath: string, targetDir: string): Promise<Finding[]> {
   const reportPath = join(targetDir, 'gitleaks-report.json');
 
   return new Promise((resolve) => {
     execFile(
-      'gitleaks',
+      binaryPath,
       ['detect', '--source', targetDir, '--report-format', 'json', '--report-path', reportPath, '--no-git', '--exit-code', '0'],
       { timeout: 60000 },
       (error) => {
         if (error && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          // Gitleaks not installed or unexpected failure
+          // Unexpected failure
           resolve([]);
           return;
         }

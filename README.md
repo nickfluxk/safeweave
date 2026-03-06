@@ -30,6 +30,39 @@ All 7 scanners will be available at `http://localhost:9000`.
 
 > **Get your license key** at [safeweave.dev/signup](https://safeweave.dev/signup). The gateway will not start without a valid key.
 
+## Zero-Install Scanner Binaries
+
+SafeWeave automatically downloads and manages the scanner binaries it needs. No `brew install`, no `pip install`, no manual setup.
+
+On first run, the following tools are downloaded to `~/.safeweave/bin/`:
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| [gitleaks](https://github.com/gitleaks/gitleaks) | 8.21.2 | Secret and credential detection |
+| [trivy](https://github.com/aquasecurity/trivy) | 0.58.0 | Container vulnerability and IaC misconfiguration scanning |
+| [opengrep](https://github.com/opengrep/opengrep) | 1.16.3 | SAST analysis (Semgrep-compatible, standalone binary) |
+
+**How it works:**
+
+- Binaries are resolved in order: **system PATH** → **`~/.safeweave/bin/` cache** → **auto-download**
+- If you already have `gitleaks` or `trivy` installed via Homebrew/apt, those system binaries are used (never shadowed)
+- For SAST, system `semgrep` is preferred; if not found, `opengrep` (a standalone Semgrep-compatible fork) is downloaded instead — no Python required
+- Downloads happen in the background at startup — the server is ready immediately
+- Versions are pinned and updated with each SafeWeave release
+- If a download fails (e.g. no internet), that scanner is skipped gracefully — everything else keeps working
+
+**Supported platforms:** macOS (arm64, x64), Linux (arm64, x64), Windows (x64)
+
+**Cache location:**
+
+```
+~/.safeweave/
+  bin/       # Downloaded binaries
+  meta/      # Version metadata (JSON)
+```
+
+To force a re-download, delete the cache: `rm -rf ~/.safeweave/bin ~/.safeweave/meta`
+
 ## What's Included
 
 | Scanner | Description |

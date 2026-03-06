@@ -1,6 +1,7 @@
 import { startServer } from './server.js';
 import { startHttpBridge } from './http-bridge.js';
 import { LicenseClient } from './license.js';
+import { ensureBinaries } from '@safeweave/common';
 
 const LICENSE_SERVER_URL = process.env.SAFEWEAVE_LICENSE_URL || 'https://license.safeweave.dev';
 const LICENSE_KEY = process.env.SAFEWEAVE_LICENSE_KEY || '';
@@ -40,6 +41,11 @@ async function main() {
   if (!process.stdin.isTTY) {
     startServer(projectDir);
   }
+
+  // Pre-download missing scanner binaries in background (non-blocking)
+  ensureBinaries(['gitleaks', 'trivy', 'opengrep']).catch((err) => {
+    process.stderr.write(`[SafeWeave] Binary setup: ${(err as Error).message}\n`);
+  });
 }
 
 main().catch((err) => {

@@ -3,6 +3,7 @@ import { writeFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, statSync } f
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ScanRequest, Finding } from '@safeweave/common';
+import { resolveBinary } from '@safeweave/common';
 
 // Rules directory is at /app/rules in the Docker container, or relative to dist/ locally
 const CUSTOM_RULES_PATHS = [
@@ -11,13 +12,22 @@ const CUSTOM_RULES_PATHS = [
 ];
 
 export async function runSemgrep(request: ScanRequest): Promise<Finding[]> {
+  // Resolve binary: try system semgrep first, then managed opengrep
+  let bin = await resolveBinary('semgrep');
+  let isOpengrep = false;
+  if (!bin) {
+    bin = await resolveBinary('opengrep');
+    isOpengrep = true;
+  }
+  if (!bin) return [];
+
   // If the request contains a single directory path (no content), scan it directly.
   // This handles the case where the project is mounted into the container.
   const hasContent = request.files.some(f => f.content);
   if (!hasContent && request.files.length === 1) {
     const target = request.files[0].path;
     if (existsSync(target) && statSync(target).isDirectory()) {
-      return executeSemgrep(target);
+      return executeSast(bin, target, isOpengrep);
     }
   }
 
@@ -33,18 +43,24 @@ export async function runSemgrep(request: ScanRequest): Promise<Finding[]> {
       }
     }
 
-    const semgrepFindings = await executeSemgrep(tempDir);
+    const semgrepFindings = await executeSast(bin, tempDir, isOpengrep);
     return semgrepFindings;
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
-function executeSemgrep(targetDir: string): Promise<Finding[]> {
+function executeSast(binaryPath: string, targetDir: string, isOpengrep: boolean): Promise<Finding[]> {
   return new Promise((resolve) => {
-    const args = [
-      '--json',
-    ];
+    const args: string[] = [];
+
+    if (isOpengrep) {
+      // opengrep uses: opengrep scan --json --config auto <target>
+      args.push('scan', '--json');
+    } else {
+      // semgrep uses: semgrep --json --config auto <target>
+      args.push('--json');
+    }
 
     // Load SafeWeave custom rule pack; fall back to --config auto
     let hasCustomRules = false;
@@ -61,9 +77,9 @@ function executeSemgrep(targetDir: string): Promise<Finding[]> {
 
     args.push(targetDir);
 
-    execFile('semgrep', args, { timeout: 300_000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
+    execFile(binaryPath, args, { timeout: 300_000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
       if (error && !stdout) {
-        // Semgrep not installed or failed — return empty
+        // Tool failed — return empty
         resolve([]);
         return;
       }
