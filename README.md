@@ -1,40 +1,43 @@
-# SafeWeave — Self-Hosted
+# SafeWeave
 
-AI-native security scanning with 7 scanners, MCP integration, and compliance profiles. Run entirely on your own infrastructure.
+AI-native security scanning with 7 scanners, MCP integration, and compliance profiles. No Docker required — scanner binaries are downloaded automatically.
 
 ## Quick Start
+
+Add SafeWeave to your AI editor's MCP config and start scanning immediately:
+
+```json
+{
+  "mcpServers": {
+    "safeweave": {
+      "command": "npx",
+      "args": ["safeweave-mcp"],
+      "env": {
+        "SAFEWEAVE_LICENSE_KEY": "your-license-key-here"
+      }
+    }
+  }
+}
+```
+
+That's it. No `brew install`, no `pip install`, no `docker compose up`. Scanner binaries are downloaded automatically on first use.
+
+> **Get your license key** at [safeweave.dev/signup](https://safeweave.dev/signup).
+
+### Alternative: Docker
+
+If you prefer running via Docker:
 
 ```bash
 git clone https://github.com/nickfluxk/safeweave.git
 cd safeweave
-cp .env.example .env
-```
-
-Edit `.env` with your license key and home directory:
-
-```bash
-# .env
-SAFEWEAVE_LICENSE_KEY=your-license-key-here
-SCAN_DIR=/Users/yourname          # macOS
-# SCAN_DIR=/home/yourname         # Linux
-# SCAN_DIR=/mnt/c/Users/yourname  # Windows (WSL/Docker Desktop)
-```
-
-Then start the services:
-
-```bash
+cp .env.example .env   # Edit with your license key and SCAN_DIR
 docker compose up
 ```
 
-All 7 scanners will be available at `http://localhost:9000`.
+## How Scanner Binaries Work
 
-> **Get your license key** at [safeweave.dev/signup](https://safeweave.dev/signup). The gateway will not start without a valid key.
-
-## Zero-Install Scanner Binaries
-
-SafeWeave automatically downloads and manages the scanner binaries it needs. No `brew install`, no `pip install`, no manual setup.
-
-On first run, the following tools are downloaded to `~/.safeweave/bin/`:
+SafeWeave automatically downloads and manages the scanner binaries it needs on first use.
 
 | Tool | Version | Purpose |
 |------|---------|---------|
@@ -42,14 +45,12 @@ On first run, the following tools are downloaded to `~/.safeweave/bin/`:
 | [trivy](https://github.com/aquasecurity/trivy) | 0.58.0 | Container vulnerability and IaC misconfiguration scanning |
 | [opengrep](https://github.com/opengrep/opengrep) | 1.16.3 | SAST analysis (Semgrep-compatible, standalone binary) |
 
-**How it works:**
-
 - Binaries are resolved in order: **system PATH** → **`~/.safeweave/bin/` cache** → **auto-download**
-- If you already have `gitleaks` or `trivy` installed via Homebrew/apt, those system binaries are used (never shadowed)
-- For SAST, system `semgrep` is preferred; if not found, `opengrep` (a standalone Semgrep-compatible fork) is downloaded instead — no Python required
+- If you already have `gitleaks` or `trivy` installed via Homebrew/apt, those are used (never shadowed)
+- For SAST, system `semgrep` is preferred; if not found, `opengrep` (a standalone Semgrep-compatible fork) is downloaded — no Python required
 - Downloads happen in the background at startup — the server is ready immediately
 - Versions are pinned and updated with each SafeWeave release
-- If a download fails (e.g. no internet), that scanner is skipped gracefully — everything else keeps working
+- If a download fails (no internet), that scanner is skipped gracefully
 
 **Supported platforms:** macOS (arm64, x64), Linux (arm64, x64), Windows (x64)
 
@@ -61,7 +62,7 @@ On first run, the following tools are downloaded to `~/.safeweave/bin/`:
   meta/      # Version metadata (JSON)
 ```
 
-To force a re-download, delete the cache: `rm -rf ~/.safeweave/bin ~/.safeweave/meta`
+To force a re-download: `rm -rf ~/.safeweave/bin ~/.safeweave/meta`
 
 ## What's Included
 
@@ -77,7 +78,16 @@ To force a re-download, delete the cache: `rm -rf ~/.safeweave/bin ~/.safeweave/
 
 ## MCP Integration
 
-Add SafeWeave to your AI editor (Cursor, Claude Code, VS Code, Windsurf):
+Works with any MCP-compatible editor — Cursor, Claude Code, VS Code, Windsurf, and more.
+
+Once configured (see Quick Start above), ask your AI:
+
+- *"Scan this project for security vulnerabilities"*
+- *"Check my dependencies for CVEs"*
+- *"Scan for hardcoded secrets"*
+- *"Run an IaC misconfiguration scan"*
+
+If running via Docker, use the SSE transport instead:
 
 ```json
 {
@@ -88,8 +98,6 @@ Add SafeWeave to your AI editor (Cursor, Claude Code, VS Code, Windsurf):
   }
 }
 ```
-
-Then ask your AI: *"Scan this project for security vulnerabilities"*
 
 ## HTTP API
 
@@ -125,18 +133,8 @@ Set via MCP `set_profile` tool or create a custom `.safeweave/profile.yaml` in y
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SAFEWEAVE_LICENSE_KEY` | Yes | Your license key from [safeweave.dev](https://safeweave.dev) |
-| `SCAN_DIR` | Yes | Your home directory — all projects under it are scannable |
+| `SCAN_DIR` | Docker only | Host directory to mount for scanning |
 | `SAFEWEAVE_LICENSE_URL` | No | License server URL (defaults to `https://license.safeweave.dev`) |
-
-### Scanner Addresses
-
-Override scanner addresses if running scanners separately:
-
-```bash
-SCANNER_SAST_HOST=my-sast-host
-SCANNER_SAST_PORT=9001
-SCANNER_SAST_ENABLED=true
-```
 
 ## License
 
