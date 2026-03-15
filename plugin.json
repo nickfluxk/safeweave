@@ -1,0 +1,8 @@
+{
+  "name": "safeweave",
+  "version": "1.0.0",
+  "description": "Auto-scan code for security vulnerabilities before every commit and push. Uses SafeWeave MCP for SAST, secrets detection, and dependency scanning.",
+  "skills": [
+    "skills/secure-before-push"
+  ]
+}
