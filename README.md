@@ -136,6 +136,45 @@ Set via MCP `set_profile` tool or create a custom `.safeweave/profile.yaml` in y
 | `SCAN_DIR` | Docker only | Host directory to mount for scanning |
 | `SAFEWEAVE_LICENSE_URL` | No | License server URL (defaults to `https://license.safeweave.dev`) |
 
+## Claude Code Skill: Auto-Scan Before Push
+
+SafeWeave includes a Claude Code skill that automatically scans your code before every `git commit`, `git push`, or PR creation.
+
+### Install the skill
+
+Copy the skill to your Claude Code skills directory:
+
+```bash
+mkdir -p ~/.claude/skills/secure-before-push
+curl -sL https://raw.githubusercontent.com/nickfluxk/safeweave/main/skills/secure-before-push/SKILL.md \
+  -o ~/.claude/skills/secure-before-push/SKILL.md
+```
+
+Or clone and copy:
+
+```bash
+git clone https://github.com/nickfluxk/safeweave.git /tmp/safeweave
+cp -r /tmp/safeweave/skills/secure-before-push ~/.claude/skills/
+```
+
+### What happens after install
+
+Once installed, Claude Code automatically runs a SafeWeave scan whenever you say "commit", "push", "ship it", or "create a PR":
+
+| Severity | Action | Blocks push? |
+|----------|--------|-------------|
+| Critical / High | Fix immediately, re-scan | Yes |
+| Medium | Warns, asks confirmation | User decides |
+| Low / Info | No action | No |
+
+### Prerequisites
+
+SafeWeave MCP server must be configured. Run `npx safeweave-mcp` to set it up automatically.
+
+### Verify
+
+Start a new Claude Code session and ask it to commit code. You should see a SafeWeave scan run before the git operation.
+
 ## License
 
 MIT
