@@ -1,0 +1,50 @@
+rules:
+  # ── Prototype Pollution ─────────────────────────────────────────────
+  - id: safeweave.node.prototype-pollution.object-merge
+    patterns:
+      - pattern-either:
+          - pattern: Object.assign($TARGET, $SOURCE)
+          - pattern: "{ ...$SOURCE }"
+      - pattern-inside: |
+          function $FUNC(..., $SOURCE, ...) {
+            ...
+          }
+    message: >-
+      Object.assign or spread with user-controlled source can lead to
+      prototype pollution if the source contains __proto__ or constructor
+      keys. Validate or sanitize input objects.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-1321"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.prototype-pollution.bracket-assign
+    pattern: $OBJ[$KEY] = $VAL
+    message: >-
+      Dynamic property assignment with bracket notation. If $KEY is
+      user-controlled (e.g., __proto__, constructor.prototype), this
+      enables prototype pollution. Validate keys against a denylist.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-1321"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.prototype-pollution.lodash-merge
+    patterns:
+      - pattern-either:
+          - pattern: _.merge($TARGET, $SOURCE)
+          - pattern: _.defaultsDeep($TARGET, $SOURCE)
+    message: >-
+      lodash merge/defaultsDeep with untrusted input is a known prototype
+      pollution vector. Use lodash >= 4.17.21 and validate input.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-1321"]
+      category: security
+      confidence: MEDIUM

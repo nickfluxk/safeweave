@@ -1,0 +1,49 @@
+rules:
+  # ── WebSocket Security ──────────────────────────────────────────────
+  - id: safeweave.node.ws.no-origin-check
+    pattern-either:
+      - pattern: new WebSocketServer({ ... })
+      - pattern: new WebSocket.Server({ ... })
+    message: >-
+      WebSocket server created. Ensure origin validation is performed
+      in the connection handler. Any website can connect via cross-origin
+      WebSocket hijacking without origin checks.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-346"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.ws.no-auth
+    pattern: |
+      $WSS.on('connection', ($WS) => { ... })
+    message: >-
+      WebSocket connection handler without request parameter. Add the
+      request parameter to verify tokens or session cookies:
+      wss.on('connection', (ws, req) => { ... }).
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-306"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.ws.no-message-validation
+    patterns:
+      - pattern: |
+          $WS.on('message', ($DATA) => {
+            ...
+            JSON.parse($DATA)
+            ...
+          })
+    message: >-
+      WebSocket message parsed without validation. Validate message
+      schema and size to prevent injection and DoS.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-20"]
+      category: security
+      confidence: LOW

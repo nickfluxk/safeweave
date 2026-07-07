@@ -1,0 +1,64 @@
+rules:
+  # ── Open Redirect ───────────────────────────────────────────────────
+  - id: safeweave.node.redirect.unvalidated
+    patterns:
+      - pattern-either:
+          - pattern: $RES.redirect($URL)
+          - pattern: $RES.redirect($STATUS, $URL)
+          - pattern: $RES.setHeader('Location', $URL)
+      - pattern-not-inside: |
+          if ($ALLOWED.includes($URL)) { ... }
+    message: >-
+      Redirect with potentially user-controlled URL. Validate the
+      destination against an allowlist of trusted domains to prevent
+      open redirect attacks used in phishing.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-601"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.python.redirect.flask-unvalidated
+    patterns:
+      - pattern-either:
+          - pattern: redirect(request.args.get(...))
+          - pattern: redirect(request.form.get(...))
+          - pattern: redirect(request.args[...])
+    message: >-
+      Flask redirect with user-supplied URL. Validate destination
+      against trusted domains to prevent open redirects.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-601"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.python.redirect.django-unvalidated
+    patterns:
+      - pattern-either:
+          - pattern: HttpResponseRedirect(request.GET.get(...))
+          - pattern: HttpResponseRedirect(request.POST.get(...))
+    message: >-
+      Django redirect with user-supplied URL from request parameters.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-601"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.java.redirect.unvalidated
+    pattern: $RESPONSE.sendRedirect($URL)
+    message: >-
+      Servlet sendRedirect with potentially user-controlled URL.
+      Validate destination to prevent open redirects.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-601"]
+      category: security
+      confidence: LOW

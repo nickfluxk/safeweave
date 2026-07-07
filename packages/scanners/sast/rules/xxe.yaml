@@ -1,0 +1,121 @@
+rules:
+  # ── Java XXE ────────────────────────────────────────────────────────
+  - id: safeweave.java.xxe.documentbuilder-unsafe
+    patterns:
+      - pattern: DocumentBuilderFactory.newInstance()
+      - pattern-not-inside: |
+          $DBF = DocumentBuilderFactory.newInstance();
+          ...
+          $DBF.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+    message: >-
+      DocumentBuilderFactory without disabling external entities enables
+      XXE attacks. Set setFeature("http://apache.org/xml/features/
+      disallow-doctype-decl", true).
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-611"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.java.xxe.saxparser-unsafe
+    patterns:
+      - pattern: SAXParserFactory.newInstance()
+      - pattern-not-inside: |
+          $SPF = SAXParserFactory.newInstance();
+          ...
+          $SPF.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+    message: >-
+      SAXParserFactory without disabling external entities enables XXE.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.java.xxe.xmlinputfactory-unsafe
+    patterns:
+      - pattern: XMLInputFactory.newInstance()
+      - pattern-not-inside: |
+          $XIF = XMLInputFactory.newInstance();
+          ...
+          $XIF.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+    message: >-
+      XMLInputFactory without disabling external entities enables XXE.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Python XXE ──────────────────────────────────────────────────────
+  - id: safeweave.python.xxe.etree-parse
+    patterns:
+      - pattern-either:
+          - pattern: lxml.etree.parse($INPUT, ...)
+          - pattern: lxml.etree.fromstring($INPUT, ...)
+      - pattern-not-inside: |
+          $PARSER = lxml.etree.XMLParser(resolve_entities=False)
+          ...
+    message: >-
+      lxml XML parsing without resolve_entities=False enables XXE.
+      Use defusedxml or set resolve_entities=False.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-611"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.python.xxe.use-defusedxml
+    pattern-either:
+      - pattern: xml.etree.ElementTree.parse(...)
+      - pattern: xml.dom.minidom.parse(...)
+      - pattern: xml.sax.parse(...)
+      - pattern: xml.dom.pulldom.parse(...)
+    message: >-
+      Python stdlib XML parsers are vulnerable to XXE by default. Use
+      the defusedxml library instead.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      confidence: HIGH
+
+  # ── Go XXE ──────────────────────────────────────────────────────────
+  - id: safeweave.go.xxe.xml-decoder
+    patterns:
+      - pattern: xml.NewDecoder($INPUT)
+    message: >-
+      Go xml.Decoder processes external entities by default. Use
+      Decoder.Strict = true or set a custom CharsetReader that
+      rejects DTDs.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      confidence: LOW
+
+  # ── Node.js XXE ─────────────────────────────────────────────────────
+  - id: safeweave.node.xxe.libxmljs-unsafe
+    patterns:
+      - pattern-either:
+          - pattern: |
+              libxmljs.parseXml($INPUT, { ..., noent: true, ... })
+          - pattern: |
+              libxmljs.parseXml($INPUT, { ..., dtdload: true, ... })
+    message: >-
+      libxmljs parsing with noent/dtdload enabled allows external
+      entity processing (XXE). Set noent: false, dtdload: false.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-611"]
+      category: security
+      confidence: HIGH

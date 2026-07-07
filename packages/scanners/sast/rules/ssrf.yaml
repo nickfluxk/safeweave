@@ -1,0 +1,78 @@
+rules:
+  # ── Node.js / TypeScript SSRF ───────────────────────────────────────
+  - id: safeweave.node.ssrf.fetch-unvalidated-url
+    patterns:
+      - pattern-either:
+          - pattern: fetch($URL, ...)
+          - pattern: axios.get($URL, ...)
+          - pattern: axios.post($URL, ...)
+          - pattern: axios($URL, ...)
+          - pattern: got($URL, ...)
+          - pattern: $HTTP.get($URL, ...)
+          - pattern: $HTTP.request($URL, ...)
+      - pattern-not-inside: |
+          if ($VALIDATE($URL)) { ... }
+    message: >-
+      HTTP request with potentially user-controlled URL. Validate URLs
+      against an allowlist to prevent Server-Side Request Forgery (SSRF).
+      Block requests to internal IPs (127.0.0.1, 10.x, 172.16.x, 169.254.x).
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.ssrf.execfile-url-arg
+    patterns:
+      - pattern: execFile($CMD, [..., $URL, ...], ...)
+    message: >-
+      User-supplied URL passed as argument to execFile. If $URL comes from
+      user input, this enables SSRF — the external tool can reach internal
+      hosts. Validate the URL against a domain allowlist.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Python SSRF ─────────────────────────────────────────────────────
+  - id: safeweave.python.ssrf.requests-unvalidated
+    patterns:
+      - pattern-either:
+          - pattern: requests.get($URL, ...)
+          - pattern: requests.post($URL, ...)
+          - pattern: requests.put($URL, ...)
+          - pattern: urllib.request.urlopen($URL, ...)
+          - pattern: httpx.get($URL, ...)
+          - pattern: httpx.post($URL, ...)
+    message: >-
+      HTTP request with potentially user-controlled URL. Validate and
+      restrict URLs to prevent SSRF attacks.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021"]
+      category: security
+      confidence: LOW
+
+  # ── Go SSRF ─────────────────────────────────────────────────────────
+  - id: safeweave.go.ssrf.http-get-unvalidated
+    patterns:
+      - pattern-either:
+          - pattern: http.Get($URL)
+          - pattern: http.Post($URL, ...)
+          - pattern: http.NewRequest($METHOD, $URL, ...)
+    message: >-
+      HTTP request with potentially user-controlled URL in Go. Validate
+      the URL against an allowlist to prevent SSRF.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-918"]
+      category: security
+      confidence: LOW

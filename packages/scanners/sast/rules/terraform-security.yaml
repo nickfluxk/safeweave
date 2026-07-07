@@ -1,0 +1,131 @@
+rules:
+  # ── Terraform / IaC Security ────────────────────────────────────────
+  - id: safeweave.terraform.aws.s3-public-acl
+    pattern-either:
+      - pattern: |
+          acl = "public-read"
+      - pattern: |
+          acl = "public-read-write"
+    message: >-
+      S3 bucket with public ACL. Remove public access and use bucket
+      policies with least-privilege IAM roles.
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: ["CWE-284"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.terraform.aws.sg-open-ingress
+    pattern: |
+      ingress {
+        ...
+        cidr_blocks = ["0.0.0.0/0"]
+        ...
+      }
+    message: >-
+      Security group ingress open to all IPs (0.0.0.0/0). Restrict
+      to specific CIDR blocks or security groups.
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: ["CWE-284"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.terraform.aws.rds-public
+    pattern: |
+      publicly_accessible = true
+    message: >-
+      RDS database publicly accessible. Set publicly_accessible = false
+      and access via VPC private subnets.
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: ["CWE-668"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.terraform.aws.no-encryption
+    patterns:
+      - pattern: |
+          resource "aws_ebs_volume" $NAME {
+            ...
+          }
+      - pattern-not: |
+          encrypted = true
+    message: >-
+      EBS volume without encryption. Set encrypted = true for
+      data-at-rest protection.
+    severity: WARNING
+    languages: [hcl]
+    metadata:
+      cwe: ["CWE-311"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.terraform.aws.iam-wildcard
+    pattern: |
+      actions = ["*"]
+    message: >-
+      IAM policy with wildcard actions. Follow least-privilege
+      principle — specify only required actions.
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: ["CWE-250"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.terraform.aws.hardcoded-secret
+    patterns:
+      - pattern-either:
+          - pattern: |
+              access_key = "..."
+          - pattern: |
+              secret_key = "..."
+    message: >-
+      Hardcoded AWS credentials in Terraform. Use environment variables,
+      AWS profiles, or a secrets manager.
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: ["CWE-798"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.terraform.aws.rds-no-encryption
+    patterns:
+      - pattern: |
+          resource "aws_db_instance" $NAME {
+            ...
+          }
+      - pattern-not: |
+          storage_encrypted = true
+    message: >-
+      RDS instance without storage encryption. Set storage_encrypted
+      = true.
+    severity: WARNING
+    languages: [hcl]
+    metadata:
+      cwe: ["CWE-311"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.terraform.aws.cloudtrail-disabled
+    patterns:
+      - pattern: |
+          resource "aws_cloudtrail" $NAME {
+            ...
+            enable_logging = false
+            ...
+          }
+    message: >-
+      CloudTrail logging disabled. Enable logging for security audit trail.
+    severity: ERROR
+    languages: [hcl]
+    metadata:
+      cwe: ["CWE-778"]
+      owasp: ["A09:2021"]
+      category: security
+      confidence: HIGH

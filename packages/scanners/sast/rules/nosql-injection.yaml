@@ -1,0 +1,60 @@
+rules:
+  # ── NoSQL Injection ─────────────────────────────────────────────────
+  - id: safeweave.node.nosqli.mongo-user-input
+    patterns:
+      - pattern-either:
+          - pattern: $COLLECTION.find($QUERY)
+          - pattern: $COLLECTION.findOne($QUERY)
+          - pattern: $COLLECTION.updateOne($QUERY, ...)
+          - pattern: $COLLECTION.deleteOne($QUERY)
+      - pattern-inside: |
+          async function $FUNC($REQ, ...) {
+            ...
+          }
+    message: >-
+      MongoDB query with potentially user-controlled filter. Use
+      mongo-sanitize or validate/type-check query parameters to prevent
+      NoSQL injection via $gt, $ne, $regex operators.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-943"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.nosqli.where-string
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $COLLECTION.$METHOD({$where: $CODE})
+          - pattern: |
+              $COLLECTION.$METHOD({$expr: $CODE})
+    message: >-
+      MongoDB $where/$expr with dynamic code enables server-side
+      JavaScript injection. Avoid $where entirely or use strongly
+      typed query operators.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-943"]
+      category: security
+      confidence: HIGH
+
+  # ── Python NoSQL ────────────────────────────────────────────────────
+  - id: safeweave.python.nosqli.pymongo-unsanitized
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $COL.find({...: request.args.get(...)})
+          - pattern: |
+              $COL.find_one({...: request.form.get(...)})
+    message: >-
+      MongoDB query with user input from request. Validate and type-check
+      to prevent NoSQL injection.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-943"]
+      category: security
+      confidence: MEDIUM

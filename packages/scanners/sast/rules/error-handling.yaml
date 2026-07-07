@@ -1,0 +1,96 @@
+rules:
+  # ── Unsafe Error Handling ───────────────────────────────────────────
+  - id: safeweave.node.error.unhandled-promise
+    pattern: $PROMISE.then($CB)
+    message: >-
+      Promise without .catch() handler. Unhandled rejections crash
+      the process in Node.js. Add .catch() or use async/await with
+      try-catch.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-755"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.error.empty-catch
+    pattern-either:
+      - pattern: |
+          try { ... } catch ($E) { }
+      - pattern: |
+          .catch(() => {})
+      - pattern: |
+          .catch(($E) => {})
+    message: >-
+      Empty catch block silently swallows errors. At minimum, log the
+      error. Silent failures can hide security issues.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-390"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.error.catch-all-generic
+    patterns:
+      - pattern: |
+          app.use(($ERR, $REQ, $RES, $NEXT) => {
+            ...
+            $RES.json({ ..., message: $ERR.message, ... });
+            ...
+          })
+    message: >-
+      Error handler sends internal error messages to clients. Return
+      a generic message and log details server-side only.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-209"]
+      owasp: ["A09:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Python Error Handling ───────────────────────────────────────────
+  - id: safeweave.python.error.bare-except
+    pattern: |
+      except:
+          ...
+    message: >-
+      Bare except catches all exceptions including SystemExit and
+      KeyboardInterrupt. Use except Exception: instead.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-396"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.error.pass-except
+    patterns:
+      - pattern: |
+          try:
+              ...
+          except $EX:
+              pass
+    message: >-
+      Exception silently ignored with pass. At minimum, log the error.
+    severity: INFO
+    languages: [python]
+    metadata:
+      cwe: ["CWE-390"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Go Error Handling ───────────────────────────────────────────────
+  - id: safeweave.go.error.ignored
+    pattern: |
+      $VAL, _ = $FUNC(...)
+    message: >-
+      Error return value discarded. In Go, always check error returns
+      to avoid silent failures and security issues.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-252"]
+      category: security
+      confidence: LOW

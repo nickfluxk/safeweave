@@ -1,0 +1,128 @@
+rules:
+  # ── Broken Access Control / Authorization ───────────────────────────
+  - id: safeweave.node.authz.express-no-auth-middleware
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $APP.get($PATH, async ($REQ, $RES) => { ... })
+          - pattern: |
+              $APP.post($PATH, async ($REQ, $RES) => { ... })
+          - pattern: |
+              $APP.put($PATH, async ($REQ, $RES) => { ... })
+          - pattern: |
+              $APP.delete($PATH, async ($REQ, $RES) => { ... })
+      - pattern-not: |
+          $APP.$METHOD($PATH, $MIDDLEWARE, async ($REQ, $RES) => { ... })
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: ".*(admin|user|account|setting|profile|dashboard|api).*"
+    message: >-
+      Sensitive route without authentication middleware. Add auth
+      middleware before the handler: app.get('/admin', requireAuth, handler).
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-306"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.authz.idor-sequential-id
+    patterns:
+      - pattern-either:
+          - pattern: $DB.findById($REQ.params.id)
+          - pattern: $DB.findByPk($REQ.params.id)
+          - pattern: |
+              $MODEL.findOne({ ..., id: $REQ.params.id, ... })
+      - pattern-not-inside: |
+          if ($REQ.user.id === ...) { ... }
+      - pattern-not-inside: |
+          if ($REQ.user.role === ...) { ... }
+    message: >-
+      Database lookup using request parameter ID without authorization
+      check. This may allow Insecure Direct Object Reference (IDOR).
+      Verify the requesting user has access to this resource.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-639"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: LOW
+
+  # ── Python Access Control ───────────────────────────────────────────
+  - id: safeweave.python.authz.django-no-login-required
+    patterns:
+      - pattern: |
+          def $VIEW(request, ...):
+              ...
+      - pattern-not-inside: |
+          @login_required
+          def $VIEW(request, ...):
+              ...
+      - pattern-not-inside: |
+          @permission_required(...)
+          def $VIEW(request, ...):
+              ...
+      - metavariable-regex:
+          metavariable: $VIEW
+          regex: ".*(admin|delete|update|create|edit|manage).*"
+    message: >-
+      Django view handling sensitive operation without @login_required
+      or @permission_required decorator.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-306"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.python.authz.flask-no-auth
+    patterns:
+      - pattern: |
+          @$APP.route($PATH, ...)
+          def $FUNC(...):
+              ...
+      - pattern-not: |
+          @$APP.route($PATH, ...)
+          @login_required
+          def $FUNC(...):
+              ...
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: ".*(admin|user|account|setting|dashboard|api).*"
+    message: >-
+      Flask route for sensitive path without authentication decorator.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-306"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: LOW
+
+  # ── Java Access Control ─────────────────────────────────────────────
+  - id: safeweave.java.authz.spring-no-preauthorize
+    patterns:
+      - pattern: |
+          @RequestMapping(...)
+          public $RET $METHOD(...) { ... }
+      - pattern-not: |
+          @PreAuthorize(...)
+          @RequestMapping(...)
+          public $RET $METHOD(...) { ... }
+      - pattern-not: |
+          @Secured(...)
+          @RequestMapping(...)
+          public $RET $METHOD(...) { ... }
+    message: >-
+      Spring endpoint without @PreAuthorize or @Secured annotation.
+      Add authorization checks for sensitive operations.
+    severity: INFO
+    languages: [java]
+    metadata:
+      cwe: ["CWE-306"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: LOW

@@ -1,0 +1,68 @@
+rules:
+  # ── Time-of-Check-to-Time-of-Use (TOCTOU) ──────────────────────────
+  - id: safeweave.node.race.toctou-fs
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if (existsSync($PATH)) {
+                ...
+                readFileSync($PATH, ...);
+              }
+          - pattern: |
+              if (existsSync($PATH)) {
+                ...
+                unlinkSync($PATH);
+              }
+          - pattern: |
+              $STAT = statSync($PATH);
+              ...
+              readFileSync($PATH, ...);
+    message: >-
+      Time-of-check-to-time-of-use (TOCTOU) race condition. The file
+      state may change between the check and the operation. Use atomic
+      operations or file locks instead.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-367"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.python.race.toctou-fs
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if os.path.exists($PATH):
+                  ...
+                  open($PATH, ...)
+          - pattern: |
+              if os.path.isfile($PATH):
+                  ...
+                  open($PATH, ...)
+    message: >-
+      TOCTOU race condition between os.path.exists() and file operation.
+      Use try/except with the file operation directly.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-367"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Go Race Conditions ──────────────────────────────────────────────
+  - id: safeweave.go.race.unsynchronized-map
+    pattern: |
+      go func() {
+        ...
+        $MAP[$KEY] = $VAL
+        ...
+      }()
+    message: >-
+      Map write inside goroutine without synchronization. Go maps are
+      not concurrent-safe. Use sync.Map or protect with sync.Mutex.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-362"]
+      category: security
+      confidence: LOW

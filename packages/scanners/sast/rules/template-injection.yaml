@@ -1,0 +1,92 @@
+rules:
+  # ── Server-Side Template Injection (SSTI) ───────────────────────────
+  - id: safeweave.python.ssti.jinja2-from-string
+    patterns:
+      - pattern-either:
+          - pattern: Template($INPUT).render(...)
+          - pattern: Environment(...).from_string($INPUT).render(...)
+          - pattern: jinja2.Template($INPUT)
+    message: >-
+      Jinja2 template created from user-controlled string enables SSTI.
+      Attackers can execute arbitrary Python code via {{config}} or
+      {{''.__class__.__mro__}}. Use render_template() with static
+      template files instead.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-1336"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.ssti.string-format-template
+    pattern: $TEMPLATE.format(**request.$METHOD)
+    message: >-
+      Python string .format() with user input can leak data via
+      attribute access (e.g., {user.__class__}). Use strict templates.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-1336"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.ssti.ejs-render-string
+    patterns:
+      - pattern-either:
+          - pattern: ejs.render($INPUT, ...)
+          - pattern: ejs.compile($INPUT)
+    message: >-
+      EJS template compiled from dynamic string. If user-controlled,
+      this enables server-side template injection. Use static template
+      files with ejs.renderFile().
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-1336"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.ssti.pug-render-string
+    pattern: pug.render($INPUT, ...)
+    message: >-
+      Pug/Jade template from dynamic string enables SSTI. Use
+      pug.renderFile() with static templates.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-1336"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Java Expression Language Injection ──────────────────────────────
+  - id: safeweave.java.ssti.expression-language
+    patterns:
+      - pattern-either:
+          - pattern: $EF.createValueExpression($CTX, $INPUT, ...)
+          - pattern: $PARSER.parseExpression($INPUT)
+    message: >-
+      Expression Language evaluated with user input enables remote code
+      execution. Never evaluate user-controlled EL expressions.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-917"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Java JNDI Injection ─────────────────────────────────────────────
+  - id: safeweave.java.jndi.lookup-injection
+    pattern: $CTX.lookup($INPUT)
+    message: >-
+      JNDI lookup with user-controlled input (Log4Shell-style attack).
+      Validate and restrict JNDI lookup names to prevent RCE via
+      rmi://, ldap://, or dns:// URLs.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-74"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: MEDIUM

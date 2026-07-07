@@ -1,0 +1,118 @@
+rules:
+  # ── Kubernetes Manifest Security ────────────────────────────────────
+  - id: safeweave.k8s.privileged-container
+    pattern: |
+      privileged: true
+    message: >-
+      Kubernetes container running in privileged mode. This gives the
+      container full host access. Remove privileged: true.
+    severity: ERROR
+    languages: [yaml]
+    metadata:
+      cwe: ["CWE-250"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.k8s.run-as-root
+    pattern: |
+      runAsUser: 0
+    message: >-
+      Container configured to run as root (UID 0). Set runAsNonRoot:
+      true and specify a non-zero runAsUser.
+    severity: ERROR
+    languages: [yaml]
+    metadata:
+      cwe: ["CWE-250"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.k8s.host-network
+    pattern: |
+      hostNetwork: true
+    message: >-
+      Pod uses host network namespace. This exposes all host network
+      interfaces to the container. Remove hostNetwork: true.
+    severity: ERROR
+    languages: [yaml]
+    metadata:
+      cwe: ["CWE-668"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.k8s.host-pid
+    pattern: |
+      hostPID: true
+    message: >-
+      Pod uses host PID namespace. Container can see and signal all
+      host processes. Remove hostPID: true.
+    severity: ERROR
+    languages: [yaml]
+    metadata:
+      cwe: ["CWE-668"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.k8s.no-resource-limits
+    patterns:
+      - pattern: |
+          containers:
+            - ...
+      - pattern-not: |
+          resources:
+            limits:
+              ...
+    message: >-
+      Container without resource limits. Set CPU and memory limits to
+      prevent resource exhaustion and DoS.
+    severity: WARNING
+    languages: [yaml]
+    metadata:
+      cwe: ["CWE-770"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.k8s.latest-tag
+    pattern-regex: "image:\\s+[^:]+:latest"
+    message: >-
+      Container image using :latest tag. Pin to specific version for
+      reproducible and auditable deployments.
+    severity: WARNING
+    languages: [yaml]
+    metadata:
+      cwe: ["CWE-829"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.k8s.capability-all
+    pattern: |
+      capabilities:
+        add:
+          - ALL
+    message: >-
+      All Linux capabilities added to container. Drop ALL and add
+      only required capabilities explicitly.
+    severity: ERROR
+    languages: [yaml]
+    metadata:
+      cwe: ["CWE-250"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.k8s.secrets-in-env
+    patterns:
+      - pattern: |
+          env:
+            - name: $NAME
+              value: $VALUE
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: ".*(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL).*"
+    message: >-
+      Secret stored as plain env var in manifest. Use Kubernetes
+      Secrets with secretKeyRef instead.
+    severity: ERROR
+    languages: [yaml]
+    metadata:
+      cwe: ["CWE-312"]
+      category: security
+      confidence: MEDIUM

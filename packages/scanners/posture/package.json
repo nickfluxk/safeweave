@@ -1,0 +1,17 @@
+{
+  "name": "@safeweave/scanner-posture",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --watch dist/index.js"
+  },
+  "dependencies": {
+    "@safeweave/common": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^20.0.0"
+  }
+}

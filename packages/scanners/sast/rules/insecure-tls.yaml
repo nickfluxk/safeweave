@@ -1,0 +1,132 @@
+rules:
+  # ── Node.js TLS/SSL Issues ──────────────────────────────────────────
+  - id: safeweave.node.tls.reject-unauthorized-false
+    pattern-either:
+      - pattern: "{ ..., rejectUnauthorized: false, ... }"
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+      - pattern: process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0'
+    message: >-
+      TLS certificate verification disabled. This allows man-in-the-middle
+      attacks. Never disable certificate verification in production.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.node.tls.weak-protocol
+    pattern-either:
+      - pattern: |
+          { ..., secureProtocol: 'TLSv1_method', ... }
+      - pattern: |
+          { ..., secureProtocol: 'SSLv3_method', ... }
+      - pattern: |
+          { ..., minVersion: 'TLSv1', ... }
+      - pattern: |
+          { ..., minVersion: 'TLSv1.1', ... }
+    message: >-
+      Weak TLS version (TLSv1.0 or 1.1). Use TLSv1.2 or TLSv1.3
+      minimum. Set minVersion: 'TLSv1.2'.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-326"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Python TLS/SSL Issues ───────────────────────────────────────────
+  - id: safeweave.python.tls.verify-false
+    pattern-either:
+      - pattern: requests.get(..., verify=False, ...)
+      - pattern: requests.post(..., verify=False, ...)
+      - pattern: requests.put(..., verify=False, ...)
+      - pattern: requests.delete(..., verify=False, ...)
+      - pattern: httpx.get(..., verify=False, ...)
+    message: >-
+      SSL/TLS certificate verification disabled (verify=False). This
+      enables man-in-the-middle attacks. Remove verify=False.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.tls.unverified-context
+    pattern-either:
+      - pattern: ssl._create_unverified_context()
+      - pattern: ssl.create_default_context()
+      - pattern: |
+          $CTX = ssl.SSLContext(ssl.PROTOCOL_TLS)
+    message: >-
+      Custom SSL context may disable certificate verification. Use
+      ssl.create_default_context() with proper certificate validation.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      confidence: LOW
+
+  # ── Go TLS Issues ──────────────────────────────────────────────────
+  - id: safeweave.go.tls.skip-verify
+    pattern: |
+      &tls.Config{..., InsecureSkipVerify: true, ...}
+    message: >-
+      TLS InsecureSkipVerify disables certificate verification. Remove
+      this in production to prevent MITM attacks.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.go.tls.weak-version
+    pattern-either:
+      - pattern: |
+          &tls.Config{..., MinVersion: tls.VersionTLS10, ...}
+      - pattern: |
+          &tls.Config{..., MinVersion: tls.VersionTLS11, ...}
+    message: >-
+      Weak TLS minimum version. Set MinVersion: tls.VersionTLS12.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-326"]
+      category: security
+      confidence: HIGH
+
+  # ── Java TLS Issues ─────────────────────────────────────────────────
+  - id: safeweave.java.tls.trust-all
+    pattern-either:
+      - pattern: |
+          new X509TrustManager() { ... }
+      - pattern: TrustManagerFactory.getInstance("...")
+    message: >-
+      Custom TrustManager that may accept all certificates. Verify
+      the implementation validates certificate chains properly.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.java.tls.hostname-verifier-bypass
+    pattern: |
+      new HostnameVerifier() { ... return true; ... }
+    message: >-
+      HostnameVerifier always returns true — hostname validation disabled.
+      This enables MITM attacks. Use the default hostname verifier.
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-295"]
+      category: security
+      confidence: HIGH

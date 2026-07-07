@@ -1,0 +1,52 @@
+rules:
+  # ── Mass Assignment / Over-Posting ──────────────────────────────────
+  - id: safeweave.node.mass-assign.spread-body
+    patterns:
+      - pattern-either:
+          - pattern: |
+              { ...$REQ.body }
+          - pattern: Object.assign($TARGET, $REQ.body)
+          - pattern: $MODEL.create($REQ.body)
+          - pattern: $MODEL.update($REQ.body)
+          - pattern: $MODEL.findOneAndUpdate(..., $REQ.body, ...)
+    message: >-
+      Entire request body spread into object or database operation.
+      Attackers can inject extra fields (e.g., role: "admin", isAdmin:
+      true). Destructure only expected fields.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-915"]
+      owasp: ["A04:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.python.mass-assign.django-form-raw
+    patterns:
+      - pattern-either:
+          - pattern: $MODEL.objects.create(**request.POST)
+          - pattern: $MODEL(**request.POST)
+    message: >-
+      Django model created with unpacked request.POST. Use a Form or
+      Serializer to validate and whitelist fields.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-915"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.ruby.mass-assign.params-permit-all
+    pattern-either:
+      - pattern: params.permit!
+      - pattern: $MODEL.new(params)
+      - pattern: $MODEL.create(params)
+    message: >-
+      Mass assignment with unpermitted params. Use strong_parameters:
+      params.require(:model).permit(:field1, :field2).
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: ["CWE-915"]
+      category: security
+      confidence: MEDIUM

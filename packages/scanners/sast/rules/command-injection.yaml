@@ -1,0 +1,102 @@
+rules:
+  # ── Node.js Command Injection ───────────────────────────────────────
+  - id: safeweave.node.cmdi.exec-string
+    pattern-either:
+      - pattern: exec($CMD, ...)
+      - pattern: execSync($CMD, ...)
+      - pattern: $CP.exec($CMD, ...)
+      - pattern: $CP.execSync($CMD, ...)
+    message: >-
+      exec/execSync called with a command string.
+      Use execFile/execFileSync with argument arrays instead to prevent
+      command injection.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.cmdi.exec-template-literal
+    pattern: exec(`...${$VAR}...`, ...)
+    message: >-
+      exec() with template literal containing variable interpolation.
+      This is a command injection vector. Use execFile() with separate
+      arguments instead.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.node.cmdi.spawn-shell-true
+    patterns:
+      - pattern-either:
+          - pattern: |
+              spawn($CMD, $ARGS, { ..., shell: true, ... })
+          - pattern: |
+              execFile($CMD, $ARGS, { ..., shell: true, ... }, ...)
+    message: >-
+      spawn/execFile with shell: true — this passes commands through the
+      shell and enables injection via argument values. Remove shell: true.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Python Command Injection ────────────────────────────────────────
+  - id: safeweave.python.cmdi.os-system
+    pattern: os.system($CMD)
+    message: >-
+      os.system() executes commands through the shell. Use
+      subprocess.run() with a list of arguments and shell=False instead.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.cmdi.subprocess-shell
+    pattern: subprocess.run($CMD, ..., shell=True, ...)
+    message: >-
+      subprocess.run with shell=True enables command injection. Pass
+      arguments as a list with shell=False.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-78"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.cmdi.popen-string
+    patterns:
+      - pattern: subprocess.Popen($CMD, ..., shell=True, ...)
+    message: >-
+      subprocess.Popen with shell=True enables command injection.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-78"]
+      category: security
+      confidence: HIGH
+
+  # ── Go Command Injection ────────────────────────────────────────────
+  - id: safeweave.go.cmdi.exec-command-concat
+    pattern: exec.Command("bash", "-c", $CMD)
+    message: >-
+      exec.Command with bash -c enables command injection. Pass the
+      command and arguments separately.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      cwe: ["CWE-78"]
+      category: security
+      confidence: HIGH

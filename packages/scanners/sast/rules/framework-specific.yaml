@@ -1,0 +1,165 @@
+rules:
+  # ── Django Security ─────────────────────────────────────────────────
+  - id: safeweave.python.django.allowed-hosts-wildcard
+    pattern: ALLOWED_HOSTS = ['*']
+    message: >-
+      Django ALLOWED_HOSTS set to wildcard. This disables host header
+      validation and enables host header injection attacks. Set to
+      specific domain names.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-16"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.django.raw-sql
+    patterns:
+      - pattern-either:
+          - pattern: $QS.raw($SQL)
+          - pattern: $QS.extra(where=[$SQL])
+          - pattern: connection.cursor().execute($SQL)
+    message: >-
+      Django raw SQL query. If $SQL contains user input, this enables
+      SQL injection. Use ORM queries or parameterized raw().
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-89"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.python.django.csrf-exempt
+    pattern: |
+      @csrf_exempt
+      def $VIEW(...):
+          ...
+    message: >-
+      Django view with @csrf_exempt. CSRF protection disabled for this
+      endpoint. Ensure this is intentional (e.g., API with token auth).
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-352"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Express Security ────────────────────────────────────────────────
+  - id: safeweave.node.express.trust-proxy-true
+    pattern: $APP.set('trust proxy', true)
+    message: >-
+      Express trust proxy set to true trusts all proxies. Use a
+      specific proxy count or IP: app.set('trust proxy', 1) or
+      app.set('trust proxy', 'loopback').
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-346"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.node.express.no-helmet
+    patterns:
+      - pattern: |
+          const $APP = express()
+      - pattern-not-inside: |
+          $APP.use(helmet(...))
+    message: >-
+      Express app without helmet middleware. Helmet sets security
+      headers (CSP, HSTS, X-Content-Type-Options, etc.). Add
+      app.use(helmet()).
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-693"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: LOW
+
+  # ── Next.js Security ────────────────────────────────────────────────
+  - id: safeweave.node.nextjs.getserversideprops-leak
+    patterns:
+      - pattern: |
+          export async function getServerSideProps(...) {
+            ...
+            return { props: { ..., $SECRET: $VALUE, ... } };
+          }
+      - metavariable-regex:
+          metavariable: $SECRET
+          regex: ".*(secret|token|key|password|credential|apiKey).*"
+    message: >-
+      Sensitive data returned in getServerSideProps props. These are
+      serialized to HTML and visible in the page source. Filter out
+      secrets before returning.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-200"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Spring Security ─────────────────────────────────────────────────
+  - id: safeweave.java.spring.csrf-disabled
+    pattern: |
+      $HTTP.csrf().disable()
+    message: >-
+      Spring Security CSRF protection disabled. Re-enable unless this
+      is a stateless API using token-based auth.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-352"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.java.spring.permit-all-sensitive
+    patterns:
+      - pattern: $HTTP.antMatchers($PATH).permitAll()
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: ".*(admin|manage|config|internal|debug).*"
+    message: >-
+      Sensitive Spring endpoint configured with permitAll(). Require
+      authentication for administrative paths.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: ["CWE-306"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Rails Security ─────────────────────────────────────────────────
+  - id: safeweave.ruby.rails.skip-auth
+    pattern-either:
+      - pattern: skip_before_action :authenticate_user!
+      - pattern: skip_before_action :verify_authenticity_token
+    message: >-
+      Authentication or CSRF verification skipped. Ensure this is
+      intentional and the endpoint has alternative protection.
+    severity: WARNING
+    languages: [ruby]
+    metadata:
+      cwe: ["CWE-306"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.ruby.rails.raw-sql
+    patterns:
+      - pattern-either:
+          - pattern: $MODEL.where("...#{$VAR}...")
+          - pattern: $MODEL.find_by_sql("...#{$VAR}...")
+          - pattern: ActiveRecord::Base.connection.execute("...#{$VAR}...")
+    message: >-
+      Rails SQL query with string interpolation. Use parameterized
+      queries: Model.where("name = ?", name).
+    severity: ERROR
+    languages: [ruby]
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH

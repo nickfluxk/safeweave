@@ -1,0 +1,102 @@
+rules:
+  # ── Node.js / TypeScript Path Traversal ─────────────────────────────
+  - id: safeweave.node.path-traversal.readfile-unsanitized
+    patterns:
+      - pattern-either:
+          - pattern: readFileSync($PATH, ...)
+          - pattern: readFile($PATH, ...)
+          - pattern: $FS.readFileSync($PATH, ...)
+          - pattern: $FS.readFile($PATH, ...)
+      - pattern-not-inside: |
+          $RESOLVED = resolve(...);
+          ...
+          if (!$RESOLVED.startsWith($ALLOWED)) { ... }
+          ...
+          readFileSync($RESOLVED, ...);
+      - pattern-not-inside: |
+          if (!$PATH.startsWith($ALLOWED)) { ... }
+          ...
+    message: >-
+      readFileSync/readFile called with potentially unsanitized path.
+      Validate the resolved path starts with an allowed base directory
+      to prevent path traversal (e.g., ../../etc/passwd).
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: MEDIUM
+
+  - id: safeweave.node.path-traversal.join-user-input
+    patterns:
+      - pattern: join($BASE, $USER_INPUT)
+      - pattern-not-inside: |
+          $RESULT = join(...);
+          ...
+          if (!$RESULT.startsWith(...)) { ... }
+    message: >-
+      path.join() with user-controlled segment. An attacker can use
+      '../' sequences to escape the intended directory. Resolve the
+      final path and verify it starts with the expected base directory.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: LOW
+
+  - id: safeweave.node.path-traversal.writefile-unsanitized
+    patterns:
+      - pattern-either:
+          - pattern: writeFileSync($PATH, ...)
+          - pattern: writeFile($PATH, ...)
+          - pattern: $FS.writeFileSync($PATH, ...)
+          - pattern: $FS.writeFile($PATH, ...)
+      - pattern-not-inside: |
+          if (!$PATH.startsWith($ALLOWED)) { ... }
+          ...
+    message: >-
+      writeFileSync/writeFile called with potentially unsanitized path.
+      An attacker could write files to arbitrary locations on the system.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Python Path Traversal ───────────────────────────────────────────
+  - id: safeweave.python.path-traversal.open-unsanitized
+    patterns:
+      - pattern: open($PATH, ...)
+      - pattern-not-inside: |
+          if not $PATH.startswith($ALLOWED):
+              ...
+    message: >-
+      open() called with potentially unsanitized path. Validate the
+      resolved path against an allowed base directory.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: ["CWE-22"]
+      category: security
+      confidence: LOW
+
+  # ── Go Path Traversal ──────────────────────────────────────────────
+  - id: safeweave.go.path-traversal.filepath-join
+    patterns:
+      - pattern: filepath.Join($BASE, $INPUT)
+      - pattern-not-inside: |
+          if !strings.HasPrefix(...) { ... }
+    message: >-
+      filepath.Join with user-controlled segment. Validate the resolved
+      path with strings.HasPrefix to prevent directory traversal.
+    severity: WARNING
+    languages: [go]
+    metadata:
+      cwe: ["CWE-22"]
+      category: security
+      confidence: LOW

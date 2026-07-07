@@ -1,0 +1,156 @@
+rules:
+  # ── CORS Misconfiguration ───────────────────────────────────────────
+  - id: safeweave.node.misconfig.cors-wildcard
+    pattern-either:
+      - pattern: $RES.setHeader('Access-Control-Allow-Origin', '*')
+      - pattern: $RES.header('Access-Control-Allow-Origin', '*')
+      - pattern: "cors({ origin: '*' })"
+      - pattern: "cors({ origin: true })"
+    message: >-
+      CORS Access-Control-Allow-Origin set to wildcard '*'. This allows
+      any website to make authenticated requests to your API. Restrict
+      to specific trusted origins.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-346"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Bind All Interfaces ─────────────────────────────────────────────
+  - id: safeweave.node.misconfig.bind-all-interfaces
+    pattern-either:
+      - pattern: |
+          host: '0.0.0.0'
+      - pattern: $SERVER.listen($PORT, '0.0.0.0', ...)
+      - pattern: $APP.listen($PORT, '0.0.0.0', ...)
+    message: >-
+      Server binds to 0.0.0.0 — accessible on all network interfaces
+      including public networks. Use '127.0.0.1' for local-only access
+      or restrict via firewall rules.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-668"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Missing Input Validation ────────────────────────────────────────
+  - id: safeweave.node.misconfig.json-parse-no-validation
+    patterns:
+      - pattern: "JSON.parse($INPUT) as $TYPE"
+      - pattern-not-inside: |
+          $RESULT = JSON.parse($INPUT);
+          ...
+          validate($RESULT);
+    message: >-
+      JSON.parse with type assertion but no runtime validation. Type
+      assertions are erased at runtime — use a validation library (zod,
+      joi, ajv) or call your schema validation function.
+    severity: WARNING
+    languages: [typescript]
+    metadata:
+      cwe: ["CWE-20"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Eval and Dynamic Code Execution ─────────────────────────────────
+  - id: safeweave.node.misconfig.eval-usage
+    pattern-either:
+      - pattern: eval($CODE)
+      - pattern: new Function($CODE)
+      - pattern: new Function($A, $CODE)
+      - pattern: setTimeout($CODE, ...)
+      - pattern: setInterval($CODE, ...)
+    message: >-
+      eval() or equivalent dynamic code execution detected. This enables
+      code injection if the input is user-controlled.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-95"]
+      owasp: ["A03:2021"]
+      category: security
+      confidence: HIGH
+
+  # ── Debug / Dev Left in Production ──────────────────────────────────
+  - id: safeweave.node.misconfig.debug-endpoint
+    pattern-either:
+      - pattern: $APP.get('/debug', ...)
+      - pattern: $APP.get('/debug/...', ...)
+      - pattern: $APP.get('/test', ...)
+      - pattern: $APP.post('/debug', ...)
+    message: >-
+      Debug or test endpoint exposed. Remove before production deployment.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-489"]
+      category: security
+      confidence: MEDIUM
+
+  # ── Insecure Cookie ─────────────────────────────────────────────────
+  - id: safeweave.node.misconfig.insecure-cookie
+    pattern-either:
+      - pattern: |
+          { ..., httpOnly: false, ... }
+      - pattern: |
+          { ..., secure: false, ... }
+    message: >-
+      Cookie set without httpOnly or secure flag. Set httpOnly: true to
+      prevent XSS theft and secure: true for HTTPS-only transmission.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-614"]
+      owasp: ["A05:2021"]
+      category: security
+      confidence: LOW
+
+  # ── Hardcoded IP/Hostname ───────────────────────────────────────────
+  - id: safeweave.node.misconfig.hardcoded-localhost
+    patterns:
+      - pattern-either:
+          - pattern: |
+              "http://localhost:..."
+          - pattern: |
+              "http://127.0.0.1:..."
+      - pattern-not-inside: |
+          // ...test...
+    message: >-
+      Hardcoded localhost URL — this may fail in containerized or
+      production environments. Use environment variables for host config.
+    severity: INFO
+    languages: [typescript, javascript]
+    metadata:
+      cwe: ["CWE-547"]
+      category: security
+      confidence: LOW
+
+  # ── Python Debug Mode ───────────────────────────────────────────────
+  - id: safeweave.python.misconfig.flask-debug
+    pattern: $APP.run(..., debug=True, ...)
+    message: >-
+      Flask running with debug=True exposes the Werkzeug debugger which
+      allows arbitrary code execution. Disable in production.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-489"]
+      category: security
+      confidence: HIGH
+
+  - id: safeweave.python.misconfig.django-debug
+    pattern: DEBUG = True
+    message: >-
+      Django DEBUG=True exposes detailed error pages with source code
+      and environment variables. Set to False in production.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: ["CWE-489"]
+      category: security
+      confidence: MEDIUM
