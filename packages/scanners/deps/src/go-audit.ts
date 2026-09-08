@@ -46,14 +46,17 @@ export const goAuditor: EcosystemAuditor = {
   manifestFile: 'go.mod',
 
   audit(rootDir: string): Promise<Finding[]> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       execFile(
         'govulncheck',
         ['-json', './...'],
         { cwd: rootDir, timeout: 120_000 },
         (_error, stdout) => {
           if (!stdout) {
-            resolve([]);
+            // No output at all means the tool never ran (usually absent).
+            // Reject so the server reports an INCOMPLETE audit rather than
+            // silently claiming no vulnerabilities were found.
+            reject(new Error(`govulncheck produced no output — is 'govulncheck' installed?`));
             return;
           }
 

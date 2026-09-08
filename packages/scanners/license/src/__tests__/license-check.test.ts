@@ -16,9 +16,14 @@ import { existsSync } from 'node:fs';
 const mockExecFile = vi.mocked(execFile);
 const mockExistsSync = vi.mocked(existsSync);
 
+// These tests exercise the local-install path (a real project directory,
+// simulated via the mocked existsSync + context.rootDir). Files are passed
+// without content so the scanner uses rootDir rather than materializing a
+// temp dir. The distributed/materialize path is covered by @safeweave/common's
+// materialize tests.
 function makeScanRequest(overrides?: Partial<ScanRequest>): ScanRequest {
   return {
-    files: [{ path: 'package.json', content: '{}' }],
+    files: [],
     profile: { name: 'standard', rules: {} },
     context: { rootDir: '/tmp/test-project' },
     ...overrides,
@@ -47,7 +52,7 @@ describe('runLicenseCheck', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runLicenseCheck(makeScanRequest());
+    const { findings } = await runLicenseCheck(makeScanRequest());
 
     expect(findings).toHaveLength(2);
     expect(findings[0].id).toBe('LICENSE-npm-gpl-package');
@@ -62,7 +67,7 @@ describe('runLicenseCheck', () => {
   it('returns empty findings when no ecosystems detected', async () => {
     mockExistsSync.mockReturnValue(false);
 
-    const findings = await runLicenseCheck(makeScanRequest());
+    const { findings } = await runLicenseCheck(makeScanRequest());
     expect(findings).toEqual([]);
     expect(mockExecFile).not.toHaveBeenCalled();
   });
@@ -77,7 +82,7 @@ describe('runLicenseCheck', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runLicenseCheck(makeScanRequest());
+    const { findings } = await runLicenseCheck(makeScanRequest());
     expect(findings).toEqual([]);
   });
 
@@ -96,7 +101,7 @@ describe('runLicenseCheck', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runLicenseCheck(makeScanRequest({
+    const { findings } = await runLicenseCheck(makeScanRequest({
       profile: {
         name: 'custom',
         rules: { blocked_licenses: ['MIT'] },
@@ -130,7 +135,7 @@ describe('runLicenseCheck', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runLicenseCheck(makeScanRequest());
+    const { findings } = await runLicenseCheck(makeScanRequest());
 
     expect(findings).toHaveLength(1);
     expect(findings[0].id).toContain('gpl-py-pkg');

@@ -1,86 +1,34 @@
 import { execFile } from 'node:child_process';
-import { writeFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, statSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { tmpdir } from 'node:os';
-import type { ScanRequest, Finding } from '@safeweave/common';
-import { resolveBinary } from '@safeweave/common';
+import { materializeFiles } from '@safeweave/common';
+import { engineUnavailable, type ScanRequest, type Finding, type ScanOutcome } from '@safeweave/common';
 
-// Rules directory is at /app/rules in the Docker container, or relative to dist/ locally
-const CUSTOM_RULES_PATHS = [
-  '/app/rules',
-  join(process.cwd(), 'rules'),
-];
-
-export async function runSemgrep(request: ScanRequest): Promise<Finding[]> {
-  // Resolve binary: try system semgrep first, then managed opengrep
-  let bin = await resolveBinary('semgrep');
-  let isOpengrep = false;
-  if (!bin) {
-    bin = await resolveBinary('opengrep');
-    isOpengrep = true;
-  }
-  if (!bin) return [];
-
-  // If the request contains a single directory path (no content), scan it directly.
-  // This handles the case where the project is mounted into the container.
-  const hasContent = request.files.some(f => f.content);
-  if (!hasContent && request.files.length === 1) {
-    const target = request.files[0].path;
-    if (existsSync(target) && statSync(target).isDirectory()) {
-      return executeSast(bin, target, isOpengrep);
-    }
-  }
-
-  // Otherwise write file contents to a temp directory and scan that
-  const tempDir = mkdtempSync(join(tmpdir(), 'safeweave-sast-'));
+export async function runSemgrep(request: ScanRequest): Promise<ScanOutcome> {
+  // Materialize request files into an isolated temp dir (path-traversal safe).
+  const mat = materializeFiles(request.files, 'safeweave-sast-');
 
   try {
-    for (const file of request.files) {
-      if (file.content) {
-        const filePath = join(tempDir, file.path);
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, file.content);
-      }
-    }
-
-    const semgrepFindings = await executeSast(bin, tempDir, isOpengrep);
-    return semgrepFindings;
+    return await executeSemgrep(mat.dir);
   } finally {
-    rmSync(tempDir, { recursive: true, force: true });
+    mat.cleanup();
   }
 }
 
-function executeSast(binaryPath: string, targetDir: string, isOpengrep: boolean): Promise<Finding[]> {
+function executeSemgrep(targetDir: string): Promise<ScanOutcome> {
   return new Promise((resolve) => {
-    const args: string[] = [];
+    const args = [
+      '--json',
+      '--config', 'auto',
+      targetDir,
+    ];
 
-    if (isOpengrep) {
-      // opengrep uses: opengrep scan --json --config auto <target>
-      args.push('scan', '--json');
-    } else {
-      // semgrep uses: semgrep --json --config auto <target>
-      args.push('--json');
-    }
-
-    // Load SafeWeave custom rule pack; fall back to --config auto
-    let hasCustomRules = false;
-    for (const rulesDir of CUSTOM_RULES_PATHS) {
-      if (existsSync(rulesDir)) {
-        args.push('--config', rulesDir);
-        hasCustomRules = true;
-        break;
-      }
-    }
-    if (!hasCustomRules) {
-      args.push('--config', 'auto');
-    }
-
-    args.push(targetDir);
-
-    execFile(binaryPath, args, { timeout: 300_000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
+    execFile('semgrep', args, { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
       if (error && !stdout) {
-        // Tool failed — return empty
-        resolve([]);
+        // Semgrep missing, timed out, or crashed. Report it — an empty findings
+        // array here previously read as "clean" all the way to a grade of A.
+        resolve({
+          findings: [],
+          warnings: [engineUnavailable('Semgrep (SAST)', 'Install it (https://semgrep.dev/docs/getting-started) or use the SafeWeave container image.')],
+        });
         return;
       }
 
@@ -96,9 +44,12 @@ function executeSast(binaryPath: string, targetDir: string, isOpengrep: boolean)
           cwe: extractCwe(r.extra as Record<string, unknown>),
           remediation: ((r.extra as Record<string, unknown>)?.fix as string) || 'Review and fix the flagged code pattern',
         }));
-        resolve(findings);
+        resolve({ findings, warnings: [] });
       } catch {
-        resolve([]);
+        resolve({
+          findings: [],
+          warnings: ['Semgrep produced output that could not be parsed, so SAST results are INCOMPLETE.'],
+        });
       }
     });
   });

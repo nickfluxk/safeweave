@@ -12,6 +12,7 @@ export class ScannerClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
+        signal: AbortSignal.timeout(180000),
       });
 
       if (!response.ok) {
@@ -41,6 +42,22 @@ export class ScannerClient {
       return response.ok;
     } catch {
       return false;
+    }
+  }
+
+  async healthCheck(): Promise<{ status: string; latency_ms: number }> {
+    const start = Date.now();
+    try {
+      const response = await fetch(`${this.baseUrl}/health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      const latency_ms = Date.now() - start;
+      return {
+        status: response.ok ? 'healthy' : 'unhealthy',
+        latency_ms,
+      };
+    } catch {
+      return { status: 'unhealthy', latency_ms: Date.now() - start };
     }
   }
 }

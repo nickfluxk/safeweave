@@ -17,7 +17,8 @@ const INVALID_RESULT: LicenseValidation = { valid: false, plan: null, features: 
 export class LicenseClient {
   private cache = new Map<string, CacheEntry>();
 
-  constructor(private serverUrl: string) {}
+  /** `repo` (optional) attributes reported scans to a repository for per-repo scores. */
+  constructor(private serverUrl: string, private repo?: string) {}
 
   async validate(key: string): Promise<LicenseValidation> {
     const cached = this.cache.get(key);
@@ -25,22 +26,26 @@ export class LicenseClient {
       return cached.result;
     }
 
-    const res = await fetch(`${this.serverUrl}/api/v1/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key }),
-      signal: AbortSignal.timeout(5000),
-    });
+    try {
+      const res = await fetch(`${this.serverUrl}/api/v1/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+        signal: AbortSignal.timeout(5000),
+      });
 
-    if (!res.ok) return INVALID_RESULT;
+      if (!res.ok) return INVALID_RESULT;
 
-    const result = (await res.json()) as LicenseValidation;
+      const result = (await res.json()) as LicenseValidation;
 
-    if (result.valid) {
-      this.cache.set(key, { result, expiry: Date.now() + CACHE_TTL_MS });
+      if (result.valid) {
+        this.cache.set(key, { result, expiry: Date.now() + CACHE_TTL_MS });
+      }
+
+      return result;
+    } catch {
+      return INVALID_RESULT;
     }
-
-    return result;
   }
 
   async isFeatureAllowed(key: string | undefined, feature: string): Promise<boolean> {
@@ -49,33 +54,53 @@ export class LicenseClient {
     return result.valid && result.features.includes(feature);
   }
 
-  /** Fire-and-forget: report scan usage to the license server */
-  reportUsage(key: string | undefined, scanner: string, findings: { severity: string }[], durationMs: number): void {
+  /** Fire-and-forget: report scan usage and individual findings to the license server */
+  /**
+   * @param repo Per-call repository attribution, overriding the instance
+   *   default. The HTTP bridge is a SINGLE client shared by every caller, so
+   *   constructor-level attribution is structurally wrong there: whatever slug
+   *   it held would be applied to all tenants' scans, and because the dashboard
+   *   reads scans back with DISTINCT ON (repo), each repo would overwrite the
+   *   previous one instead of being scored separately.
+   */
+  reportUsage(key: string | undefined, scanner: string, findings: { severity: string; id?: string; title?: string; file?: string; line?: number; cwe?: string; compliance?: string[] }[], durationMs: number, repo?: string): void {
     if (!key) return;
 
-    const counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-    for (const f of findings) {
-      if (f.severity in counts) {
-        counts[f.severity as keyof typeof counts]++;
-      }
-    }
-
-    fetch(`${this.serverUrl}/api/v1/usage`, {
+    // Use /report endpoint which stores both aggregate counts AND individual findings
+    fetch(`${this.serverUrl}/api/v1/report`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
       body: JSON.stringify({
-        key,
-        scanner,
-        findings_count: findings.length,
-        critical_count: counts.critical,
-        high_count: counts.high,
-        medium_count: counts.medium,
-        low_count: counts.low,
-        duration_ms: durationMs,
+        findings: findings.map(f => ({
+          id: f.id,
+          severity: f.severity,
+          title: f.title,
+          file: f.file,
+          line: f.line,
+          cwe: f.cwe,
+          compliance: f.compliance,
+        })),
+        metadata: {
+          scanner,
+          duration_ms: durationMs,
+          files_scanned: 0,
+          timestamp: new Date().toISOString(),
+          repo: repo ?? this.repo,
+        },
       }),
-      signal: AbortSignal.timeout(5000),
-    }).catch(() => {
-      // Silently ignore reporting failures — don't block scan results
+      signal: AbortSignal.timeout(10000),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        console.error(`SafeWeave: report failed (${res.status}): ${body}`);
+      } else {
+        console.log(`SafeWeave: reported ${findings.length} findings for scanner=${scanner}`);
+      }
+    }).catch((err) => {
+      console.error(`SafeWeave: report request failed: ${err}`);
     });
   }
 }

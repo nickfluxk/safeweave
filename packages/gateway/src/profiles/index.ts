@@ -38,7 +38,7 @@ const BUILT_IN_PROFILES: Record<string, Profile> = {
   owasp: {
     name: 'owasp',
     version: '1.0',
-    description: 'OWASP Top 10 focused profile',
+    description: 'OWASP Top 10 focused profile — injection, XSS, SSRF, broken access control',
     severity_thresholds: { error: 'high', warn: 'medium' },
     rules: {
       sast: {
@@ -55,7 +55,7 @@ const BUILT_IN_PROFILES: Record<string, Profile> = {
   soc2: {
     name: 'soc2',
     version: '1.0',
-    description: 'SOC 2 Type II compliance profile',
+    description: 'SOC 2 Type II compliance profile — access control, encryption, audit logging',
     severity_thresholds: { error: 'medium', warn: 'low' },
     rules: {
       sast: {
@@ -72,7 +72,7 @@ const BUILT_IN_PROFILES: Record<string, Profile> = {
   'pci-dss': {
     name: 'pci-dss',
     version: '1.0',
-    description: 'PCI DSS v4.0 compliance profile',
+    description: 'PCI DSS v4.0 compliance profile — cardholder data protection, strong cryptography',
     severity_thresholds: { error: 'medium', warn: 'low' },
     rules: {
       sast: {
@@ -94,7 +94,7 @@ const BUILT_IN_PROFILES: Record<string, Profile> = {
   hipaa: {
     name: 'hipaa',
     version: '1.0',
-    description: 'HIPAA Security Rule compliance profile',
+    description: 'HIPAA Security Rule compliance profile — PHI protection, encryption at rest and in transit',
     severity_thresholds: { error: 'medium', warn: 'low' },
     rules: {
       sast: {

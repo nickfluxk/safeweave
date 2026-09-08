@@ -19,10 +19,12 @@ export const npmAuditor: EcosystemAuditor = {
   manifestFile: 'package.json',
 
   audit(rootDir: string): Promise<Finding[]> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       execFile('npm', ['audit', '--json'], { cwd: rootDir, timeout: 60_000 }, (_error, stdout) => {
         if (!stdout) {
-          resolve([]);
+          // No output at all means the tool never ran (usually absent). Reject
+          // so the server reports an INCOMPLETE audit rather than "no CVEs".
+          reject(new Error(`npm audit produced no output — is 'npm' installed?`));
           return;
         }
 

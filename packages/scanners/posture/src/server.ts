@@ -41,7 +41,7 @@ export function createServer() {
         if (!validation.valid) {
           return json(res, 400, { error: 'Invalid scan request', details: validation.errors });
         }
-        const findings = await runPostureChecks(request);
+        const { findings, warnings } = await runPostureChecks(request);
 
         const result: ScanResult = {
           findings,
@@ -51,6 +51,9 @@ export function createServer() {
             duration_ms: Date.now() - start,
             files_scanned: request.files.length,
             timestamp: new Date().toISOString(),
+            // An engine that could not run reports it here. Without this a
+            // failed scan was indistinguishable from a clean one.
+            ...(warnings.length > 0 ? { warnings } : {}),
           },
         };
         return json(res, 200, result);

@@ -1,54 +1,13 @@
 import { startServer } from './server.js';
 import { startHttpBridge } from './http-bridge.js';
-import { LicenseClient } from './license.js';
-import { ensureBinaries } from '@safeweave/common';
 
-const LICENSE_SERVER_URL = process.env.SAFEWEAVE_LICENSE_URL || 'https://license.safeweave.dev';
-const LICENSE_KEY = process.env.SAFEWEAVE_LICENSE_KEY || '';
+const projectDir = process.argv[2] || process.cwd();
 
-async function main() {
-  // Require a valid license key
-  if (!LICENSE_KEY) {
-    console.error('ERROR: SAFEWEAVE_LICENSE_KEY environment variable is required.');
-    console.error('Get your license key at https://safeweave.dev/signup');
-    process.exit(1);
-  }
+// Start HTTP bridge for CLI / CI usage
+startHttpBridge(projectDir);
 
-  // Validate the license key against the cloud server
-  const licenseClient = new LicenseClient(LICENSE_SERVER_URL);
-  console.log('Validating license key...');
-  try {
-    const validation = await licenseClient.validate(LICENSE_KEY);
-
-    if (!validation.valid) {
-      console.error('ERROR: Invalid license key. Please check your SAFEWEAVE_LICENSE_KEY.');
-      console.error('Get a valid key at https://safeweave.dev/signup');
-      process.exit(1);
-    }
-
-    console.log(`License validated: plan=${validation.plan}`);
-  } catch {
-    console.warn('WARNING: Could not reach license server at ' + LICENSE_SERVER_URL);
-    console.warn('Starting in offline mode — scans will run but usage will not be reported.');
-  }
-
-  const projectDir = process.argv[2] || process.cwd();
-
-  // Start HTTP bridge + MCP SSE server
-  startHttpBridge(projectDir);
-
-  // Start MCP stdio server for IDE integration (only when stdin is not a TTY)
-  if (!process.stdin.isTTY) {
-    startServer(projectDir);
-  }
-
-  // Pre-download missing scanner binaries in background (non-blocking)
-  ensureBinaries(['gitleaks', 'trivy', 'opengrep']).catch((err) => {
-    process.stderr.write(`[SafeWeave] Binary setup: ${(err as Error).message}\n`);
-  });
+// Start MCP stdio server for IDE integration (only when stdin is not a TTY,
+// i.e. when an MCP client is piping to us)
+if (!process.stdin.isTTY) {
+  startServer(projectDir);
 }
-
-main().catch((err) => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});

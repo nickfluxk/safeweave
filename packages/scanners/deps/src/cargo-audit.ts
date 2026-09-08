@@ -18,14 +18,17 @@ export const cargoAuditor: EcosystemAuditor = {
   manifestFile: 'Cargo.toml',
 
   audit(rootDir: string): Promise<Finding[]> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       execFile(
         'cargo',
         ['audit', '--json'],
         { cwd: rootDir, timeout: 120_000 },
         (_error, stdout) => {
           if (!stdout) {
-            resolve([]);
+            // No output at all means the tool never ran (usually absent).
+            // Reject so the server reports an INCOMPLETE audit rather than
+            // silently claiming no vulnerabilities were found.
+            reject(new Error(`cargo audit produced no output — is 'cargo-audit' installed?`));
             return;
           }
 

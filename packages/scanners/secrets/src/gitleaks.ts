@@ -1,43 +1,55 @@
 import { execFile } from 'node:child_process';
-import { writeFileSync, mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { tmpdir } from 'node:os';
-import type { ScanRequest, Finding } from '@safeweave/common';
-import { resolveBinary } from '@safeweave/common';
+import { fileURLToPath } from 'node:url';
+import { engineUnavailable, materializeFiles, type ScanRequest, type Finding, type ScanOutcome } from '@safeweave/common';
 
-export async function runGitleaks(request: ScanRequest): Promise<Finding[]> {
-  const bin = await resolveBinary('gitleaks');
-  if (!bin) return [];
+// Bundled gitleaks config (default rules + SafeWeave allowlist for documented
+// example secrets). Resolved relative to the package root so it works whether
+// running from src (dev) or dist (build). Optional — skipped if absent.
+function resolveConfigPath(): string | undefined {
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const p of [join(here, '..', 'gitleaks.toml'), join(here, '..', '..', 'gitleaks.toml')]) {
+    if (existsSync(p)) return p;
+  }
+  return undefined;
+}
 
-  const tempDir = mkdtempSync(join(tmpdir(), 'safeweave-secrets-'));
+export async function runGitleaks(request: ScanRequest): Promise<ScanOutcome> {
+  // Materialize request files into an isolated temp dir (path-traversal safe).
+  const mat = materializeFiles(request.files, 'safeweave-secrets-');
 
   try {
-    for (const file of request.files) {
-      if (file.content) {
-        const filePath = join(tempDir, file.path);
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, file.content);
-      }
-    }
-
-    return await executeGitleaks(bin, tempDir);
+    return await executeGitleaks(mat.dir);
   } finally {
-    rmSync(tempDir, { recursive: true, force: true });
+    mat.cleanup();
   }
 }
 
-function executeGitleaks(binaryPath: string, targetDir: string): Promise<Finding[]> {
+function executeGitleaks(targetDir: string): Promise<ScanOutcome> {
   const reportPath = join(targetDir, 'gitleaks-report.json');
+
+  const configPath = resolveConfigPath();
+  const args = ['detect', '--source', targetDir, '--report-format', 'json', '--report-path', reportPath, '--no-git', '--exit-code', '0'];
+  if (configPath) args.push('--config', configPath);
 
   return new Promise((resolve) => {
     execFile(
-      binaryPath,
-      ['detect', '--source', targetDir, '--report-format', 'json', '--report-path', reportPath, '--no-git', '--exit-code', '0'],
+      'gitleaks',
+      args,
       { timeout: 60000 },
       (error) => {
-        if (error && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          // Unexpected failure
-          resolve([]);
+        // ENOENT means the binary is absent; anything else means it ran and
+        // failed. Both used to end as an empty findings array, i.e. "no secrets
+        // found" — the most dangerous false negative this product can emit.
+        if (error) {
+          const missing = (error as NodeJS.ErrnoException).code === 'ENOENT';
+          resolve({
+            findings: [],
+            warnings: [missing
+              ? engineUnavailable('Gitleaks (secret scanning)', 'Install it (https://github.com/gitleaks/gitleaks) or use the SafeWeave container image.')
+              : `Gitleaks failed to complete, so secret-scanning results are INCOMPLETE: ${error.message}`],
+          });
           return;
         }
 
@@ -54,9 +66,12 @@ function executeGitleaks(binaryPath: string, targetDir: string): Promise<Finding
             cwe: 'CWE-798',
             remediation: 'Remove the secret from source code. Use environment variables or a secrets manager instead.',
           }));
-          resolve(findings);
+          resolve({ findings, warnings: [] });
         } catch {
-          resolve([]);
+          resolve({
+            findings: [],
+            warnings: ['Gitleaks produced no readable report, so secret-scanning results are INCOMPLETE.'],
+          });
         }
       }
     );

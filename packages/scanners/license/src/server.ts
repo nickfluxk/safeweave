@@ -1,12 +1,24 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { runLicenseCheck } from './license-check.js';
 import type { ScanRequest, ScanResult } from '@safeweave/common';
-import { validateScanRequest } from '@safeweave/common';
+
+const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let totalSize = 0;
+    req.on('data', (chunk: Buffer) => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY_SIZE) {
+        req.destroy();
+        const err = new Error('Request body too large') as Error & { statusCode?: number };
+        err.statusCode = 413;
+        reject(err);
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString()));
     req.on('error', reject);
   });
@@ -28,11 +40,7 @@ export function createServer() {
       try {
         const body = await readBody(req);
         const request: ScanRequest = JSON.parse(body);
-        const validation = validateScanRequest(request);
-        if (!validation.valid) {
-          return json(res, 400, { error: 'Invalid scan request', details: validation.errors });
-        }
-        const findings = await runLicenseCheck(request);
+        const { findings, warnings } = await runLicenseCheck(request);
 
         const result: ScanResult = {
           findings,
@@ -42,10 +50,16 @@ export function createServer() {
             duration_ms: Date.now() - start,
             files_scanned: request.files.length,
             timestamp: new Date().toISOString(),
+            // An engine that could not run reports it here. Without this a
+            // failed scan was indistinguishable from a clean one.
+            ...(warnings.length > 0 ? { warnings } : {}),
           },
         };
         return json(res, 200, result);
       } catch (err) {
+        if ((err as { statusCode?: number })?.statusCode === 413) {
+          return json(res, 413, { error: 'Request body too large' });
+        }
         const message = err instanceof Error ? err.message : String(err);
         const result: ScanResult = {
           findings: [],

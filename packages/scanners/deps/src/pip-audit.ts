@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Finding } from '@safeweave/common';
 import type { EcosystemAuditor } from './types.js';
 
@@ -14,14 +16,28 @@ export const pipAuditor: EcosystemAuditor = {
   manifestFile: 'requirements.txt',
 
   audit(rootDir: string): Promise<Finding[]> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      // Audit the PROJECT's declared dependencies, not the scanner's own Python
+      // environment. pip-audit only audits a project when given `-r <file>`.
+      const reqPath = join(rootDir, 'requirements.txt');
+      if (!existsSync(reqPath)) {
+        // Without a requirements.txt we cannot audit project deps reliably
+        // (Pipfile/pyproject need installation); return nothing rather than
+        // auditing the wrong environment and reporting a false "all clear".
+        resolve([]);
+        return;
+      }
+
       execFile(
         'pip-audit',
-        ['--format=json'],
+        ['--format=json', '-r', 'requirements.txt'],
         { cwd: rootDir, timeout: 120_000 },
         (_error, stdout) => {
           if (!stdout) {
-            resolve([]);
+            // No output at all means the tool never ran (usually absent).
+            // Reject so the server reports an INCOMPLETE audit rather than
+            // silently claiming no vulnerabilities were found.
+            reject(new Error(`pip-audit produced no output — is 'pip-audit' installed?`));
             return;
           }
 

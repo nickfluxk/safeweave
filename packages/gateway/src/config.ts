@@ -10,6 +10,7 @@ export interface ScannerConfig {
 
 export interface SafeweaveConfig {
   profile: string;
+  licenseKey?: string;
   gateway: {
     host: string;
     port: number;
@@ -29,17 +30,17 @@ export interface SafeweaveConfig {
 export const DEFAULT_CONFIG: SafeweaveConfig = {
   profile: 'standard',
   gateway: {
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     port: 9000,
   },
   scanners: {
     sast: { enabled: true, host: '127.0.0.1', port: 9001 },
     deps: { enabled: true, host: '127.0.0.1', port: 9002 },
     secrets: { enabled: true, host: '127.0.0.1', port: 9003 },
-    iac: { enabled: true, host: '127.0.0.1', port: 9004 },
-    container: { enabled: true, host: '127.0.0.1', port: 9005 },
-    dast: { enabled: true, host: '127.0.0.1', port: 9006 },
-    license: { enabled: true, host: '127.0.0.1', port: 9007 },
+    iac: { enabled: false, host: '127.0.0.1', port: 9004 },
+    container: { enabled: false, host: '127.0.0.1', port: 9005 },
+    dast: { enabled: false, host: '127.0.0.1', port: 9006 },
+    license: { enabled: false, host: '127.0.0.1', port: 9007 },
     posture: { enabled: true, host: '127.0.0.1', port: 9008 },
   },
 };
@@ -56,6 +57,7 @@ function mergeScanner(defaults: ScannerConfig, overrides?: Partial<ScannerConfig
 function applyEnvOverrides(config: SafeweaveConfig): SafeweaveConfig {
   config.gateway.host = process.env.GATEWAY_HOST ?? config.gateway.host;
   config.gateway.port = parseInt(process.env.GATEWAY_PORT || '', 10) || config.gateway.port;
+  config.licenseKey = process.env.SAFEWEAVE_LICENSE_KEY ?? config.licenseKey;
 
   for (const [name, scanner] of Object.entries(config.scanners)) {
     const envName = name.toUpperCase();
@@ -87,6 +89,7 @@ export function loadConfig(projectDir: string): SafeweaveConfig {
 
     const config: SafeweaveConfig = {
       profile: (parsed.profile as string) || DEFAULT_CONFIG.profile,
+      licenseKey: (parsed.licenseKey as string) || undefined,
       gateway: {
         host: gatewayOverrides.host ?? DEFAULT_CONFIG.gateway.host,
         port: gatewayOverrides.port ?? DEFAULT_CONFIG.gateway.port,

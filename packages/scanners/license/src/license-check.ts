@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Finding, ScanRequest } from '@safeweave/common';
+
+import { engineUnavailable, materializeFiles, type ScanRequest, type Finding, type ScanOutcome } from '@safeweave/common';
 
 interface LicenseEntry {
   package: string;
@@ -29,7 +30,12 @@ function runNpmLicenseChecker(rootDir: string): Promise<LicenseEntry[]> {
             entries.push({
               package: pkg,
               version: ver,
-              license: (info.licenses as string) || 'UNKNOWN',
+              // license-checker emits a STRING for single licenses and an
+              // ARRAY for dual-licensed packages ("licenses": ["MIT","Apache-2.0"]).
+              // The old `as string` cast lied, so .toUpperCase() below threw a
+              // TypeError on any dual-licensed dependency and the entire license
+              // scan collapsed to zero findings — hiding real AGPL violations.
+              license: normalizeLicense(info.licenses),
               ecosystem: 'npm',
               manifestFile: 'package.json',
             });
@@ -61,8 +67,35 @@ function runPipLicenses(rootDir: string): Promise<LicenseEntry[]> {
   });
 }
 
-export async function runLicenseCheck(request: ScanRequest): Promise<Finding[]> {
-  const rootDir = request.context.rootDir || process.cwd();
+/** Collapse license-checker's string|array|missing license field to a string. */
+function normalizeLicense(raw: unknown): string {
+  if (Array.isArray(raw)) {
+    const parts = raw.filter((x): x is string => typeof x === 'string');
+    return parts.length ? parts.join(' OR ') : 'UNKNOWN';
+  }
+  if (typeof raw === 'string' && raw.trim()) return raw;
+  return 'UNKNOWN';
+}
+
+export async function runLicenseCheck(request: ScanRequest): Promise<ScanOutcome> {
+  // Scan the files sent in the request (works across hosts); fall back to
+  // context.rootDir only when no file content was provided.
+  const hasContent = (request.files || []).some((f) => f.content != null);
+  const mat = hasContent ? materializeFiles(request.files, 'safeweave-license-') : null;
+  const rootDir = mat ? mat.dir : (request.context.rootDir || process.cwd());
+
+  try {
+    return await collectLicenseFindings(request, rootDir, mat !== null);
+  } finally {
+    mat?.cleanup();
+  }
+}
+
+async function collectLicenseFindings(
+  request: ScanRequest,
+  rootDir: string,
+  materialized: boolean,
+): Promise<ScanOutcome> {
   const blockedLicenses = (request.profile.rules as Record<string, unknown>)?.blocked_licenses as string[]
     || DEFAULT_BLOCKED_LICENSES;
 
@@ -73,14 +106,25 @@ export async function runLicenseCheck(request: ScanRequest): Promise<Finding[]> 
 
   const promises: Promise<LicenseEntry[]>[] = [];
   if (hasNpm) promises.push(runNpmLicenseChecker(rootDir));
-  if (hasPython) promises.push(runPipLicenses(rootDir));
+  // pip-licenses inspects the ACTIVE Python environment, not files — running it
+  // against a materialized temp dir would report the scanner's own packages
+  // (a false result), so only run it against a real local install.
+  if (hasPython && !materialized) promises.push(runPipLicenses(rootDir));
 
   const results = await Promise.allSettled(promises);
   const allEntries: LicenseEntry[] = [];
+  const warnings: string[] = [];
   for (const result of results) {
     if (result.status === 'fulfilled') {
       allEntries.push(...result.value);
+    } else {
+      // A rejected ecosystem audit means we inspected FEWER dependencies than
+      // the user thinks. Dropping it silently understated their exposure.
+      warnings.push(`A license audit did not complete, so results are INCOMPLETE: ${String(result.reason)}`);
     }
+  }
+  if (allEntries.length === 0) {
+    warnings.push(engineUnavailable('license-checker', 'Install it (npm i -g license-checker) or use the SafeWeave container image.'));
   }
 
   const findings: Finding[] = [];
@@ -100,5 +144,5 @@ export async function runLicenseCheck(request: ScanRequest): Promise<Finding[]> 
     }
   }
 
-  return findings;
+  return { findings, warnings };
 }

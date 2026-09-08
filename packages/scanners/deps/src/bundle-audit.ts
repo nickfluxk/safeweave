@@ -19,14 +19,17 @@ export const bundleAuditor: EcosystemAuditor = {
   manifestFile: 'Gemfile',
 
   audit(rootDir: string): Promise<Finding[]> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       execFile(
         'bundle-audit',
         ['check', '--format=json'],
         { cwd: rootDir, timeout: 120_000 },
         (_error, stdout) => {
           if (!stdout) {
-            resolve([]);
+            // No output at all means the tool never ran (usually absent).
+            // Reject so the server reports an INCOMPLETE audit rather than
+            // silently claiming no vulnerabilities were found.
+            reject(new Error(`bundle-audit produced no output — is 'bundle-audit' installed?`));
             return;
           }
 

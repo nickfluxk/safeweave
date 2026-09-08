@@ -1,7 +1,9 @@
 {
   "name": "@safeweave/common",
   "version": "0.1.0",
+  "description": "Shared types, schemas, and utilities for SafeWeave security scanner",
   "type": "module",
+  "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -10,8 +12,26 @@
       "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "safeweave",
+    "security",
+    "scanner",
+    "types"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc",
-    "clean": "rm -rf dist"
+    "test": "vitest run",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }

@@ -57,7 +57,7 @@ describe('runTrivyVuln', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runTrivyVuln(makeScanRequest());
+    const { findings } = await runTrivyVuln(makeScanRequest());
 
     expect(findings).toHaveLength(2);
     expect(findings[0].id).toBe('CONTAINER-CVE-2023-1234');
@@ -78,7 +78,7 @@ describe('runTrivyVuln', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runTrivyVuln(makeScanRequest());
+    const { findings } = await runTrivyVuln(makeScanRequest());
     expect(findings).toEqual([]);
   });
 
@@ -88,7 +88,7 @@ describe('runTrivyVuln', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runTrivyVuln(makeScanRequest());
+    const { findings } = await runTrivyVuln(makeScanRequest());
     expect(findings).toEqual([]);
   });
 
@@ -98,7 +98,7 @@ describe('runTrivyVuln', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runTrivyVuln(makeScanRequest());
+    const { findings } = await runTrivyVuln(makeScanRequest());
     expect(findings).toEqual([]);
   });
 });

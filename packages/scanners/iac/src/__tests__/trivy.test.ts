@@ -55,7 +55,7 @@ describe('runTrivyMisconfig', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runTrivyMisconfig(makeScanRequest());
+    const { findings } = await runTrivyMisconfig(makeScanRequest());
 
     expect(findings).toHaveLength(2);
     expect(findings[0].id).toBe('IAC-AVD-AWS-0086');
@@ -74,7 +74,7 @@ describe('runTrivyMisconfig', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runTrivyMisconfig(makeScanRequest());
+    const { findings } = await runTrivyMisconfig(makeScanRequest());
     expect(findings).toEqual([]);
   });
 
@@ -84,7 +84,7 @@ describe('runTrivyMisconfig', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runTrivyMisconfig(makeScanRequest());
+    const { findings } = await runTrivyMisconfig(makeScanRequest());
     expect(findings).toEqual([]);
   });
 
@@ -107,7 +107,7 @@ describe('runTrivyMisconfig', () => {
       return {} as ReturnType<typeof execFile>;
     });
 
-    const findings = await runTrivyMisconfig(makeScanRequest());
+    const { findings } = await runTrivyMisconfig(makeScanRequest());
     expect(findings[0].severity).toBe('critical');
     expect(findings[1].severity).toBe('low');
     expect(findings[2].severity).toBe('info');

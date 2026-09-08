@@ -18,6 +18,11 @@ beforeAll(async () => {
 
 afterAll(() => { server.close(); });
 
+// These two exercise the real `npm audit`, which reaches the network. Under a
+// loaded parallel test run that comfortably exceeds vitest's 5s default, which
+// made the suite intermittently red — the same failure shape as the SAST test.
+const AUDIT_TIMEOUT_MS = 120_000;
+
 describe('Dependency Auditor HTTP Server', () => {
   it('responds to health check', async () => {
     const res = await fetch(`${baseUrl}/health`);
@@ -40,7 +45,7 @@ describe('Dependency Auditor HTTP Server', () => {
     const body = await res.json();
     expect(Array.isArray(body.findings)).toBe(true);
     expect(body.metadata.scanner).toBe('deps');
-  });
+  }, AUDIT_TIMEOUT_MS);
 
   it('returns findings with ecosystem-prefixed IDs', async () => {
     // Scan the monorepo root which has package.json
@@ -60,7 +65,7 @@ describe('Dependency Auditor HTTP Server', () => {
     for (const finding of body.findings) {
       expect(finding.id).toMatch(/^DEP-(NPM|PIP|GO|CARGO|GEM)-/);
     }
-  });
+  }, AUDIT_TIMEOUT_MS);
 });
 
 describe('ALL_AUDITORS registry', () => {

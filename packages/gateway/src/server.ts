@@ -8,82 +8,145 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
-import { join, extname } from 'node:path';
-import type { Finding, ScanResult, Severity } from '@safeweave/common';
+import { readFileSync, existsSync } from 'node:fs';
+import { basename, join, relative, resolve, sep } from 'node:path';
+import type { Finding, ScanResult } from '@safeweave/common';
+import { calculateScore, deriveRepoSlug, normalizeRepoSlug } from '@safeweave/common';
 import { loadConfig } from './config.js';
 import { Router } from './router/index.js';
 import { ProfileManager } from './profiles/index.js';
 import { LicenseClient } from './license.js';
+import { collectLocalFiles, materializeFiles } from './collect-files.js';
 
-// Map host filesystem paths to container mount paths.
-// Docker volume: ${SCAN_DIR}:/scan:ro
-// e.g. SCAN_DIR=/home/user → /home/user/projects/app → /scan/projects/app
-const SCAN_MOUNT = process.env.SCAN_MOUNT || '/scan';
-const SCAN_DIR = process.env.SCAN_DIR || '';
-
-function toContainerPath(hostPath: string): string {
-  // If the path already starts with the mount point, return as-is
-  if (hostPath.startsWith(SCAN_MOUNT + '/') || hostPath === SCAN_MOUNT) return hostPath;
-  // If the path starts with the host scan dir, translate it
-  if (hostPath.startsWith(SCAN_DIR + '/')) {
-    return SCAN_MOUNT + hostPath.slice(SCAN_DIR.length);
-  }
-  // If it starts with / and the translated version exists, use it
-  const translated = SCAN_MOUNT + hostPath;
-  if (existsSync(translated)) return translated;
-  // Fall back to original path
-  return hostPath;
+interface ClientFile { path: string; content: string }
+interface ResolvedInput {
+  rootDir: string;
+  files: Array<{ path: string; content?: string }>;
+  cleanup: () => void;
 }
 
-// Recursively collect source files from a directory for scanning
-const SOURCE_EXTS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-  '.py', '.java', '.go', '.rb', '.php', '.rs',
-  '.c', '.cpp', '.h', '.hpp', '.cs', '.swift',
-  '.yaml', '.yml', '.json', '.toml', '.xml',
-  '.tf', '.hcl', '.dockerfile',
-  '.sh', '.bash', '.zsh',
-]);
+/** Resolve scan input: collect local files or materialize remote files */
+function resolveInput(
+  directory: string | undefined,
+  clientFiles: ClientFile[] | undefined,
+  fallbackDir: string,
+  allowLocalFiles = true,
+  confineToRoot = false,
+): ResolvedInput {
+  const dir = directory || fallbackDir;
 
-function collectFiles(dir: string, maxFiles = 5000): Array<{ path: string; content: string }> {
-  const files: Array<{ path: string; content: string }> = [];
-  const walk = (d: string) => {
-    if (files.length >= maxFiles) return;
-    let entries;
-    try { entries = readdirSync(d, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
-      if (files.length >= maxFiles) break;
-      const fullPath = join(d, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === '__pycache__' || entry.name === 'vendor') continue;
-        walk(fullPath);
-      } else if (entry.isFile()) {
-        const ext = extname(entry.name).toLowerCase();
-        const basename = entry.name.toLowerCase();
-        if (SOURCE_EXTS.has(ext) || basename === 'dockerfile' || basename === 'makefile') {
-          try {
-            const stat = statSync(fullPath);
-            if (stat.size > 1024 * 1024) continue; // Skip files > 1MB
-            const content = readFileSync(fullPath, 'utf-8');
-            files.push({ path: fullPath, content });
-          } catch { /* skip unreadable files */ }
-        }
+  if (allowLocalFiles && existsSync(dir)) {
+    // Local mode — collect files from disk.
+    //
+    // Containment belongs HERE, not at the top of the function: it must gate
+    // the disk read only. A remote caller legitimately sends its own absolute
+    // `directory` as metadata next to `files` content, and checking before
+    // that branch would refuse them. Over the HTTP bridge a token-holding
+    // caller could otherwise pass directory:"/root" and have the secrets
+    // scanner walk it and hand back the credentials it matched — the wider of
+    // the two holes, since scan_project walks a whole tree.
+    if (confineToRoot) {
+      const root = resolve(fallbackDir);
+      const target = resolve(root, dir);
+      if (target !== root && !target.startsWith(root + sep)) {
+        throw new Error(`Refusing to read outside the project root: ${dir}`);
       }
     }
+    const files = collectLocalFiles(dir);
+    return { rootDir: dir, files, cleanup: () => {} };
+  }
+
+  // Remote mode — need client-provided files
+  if (!clientFiles || clientFiles.length === 0) {
+    throw new Error(
+      `Directory "${dir}" is not accessible on this server. ` +
+      `When using SafeWeave remotely, pass file contents in the "files" parameter. ` +
+      `Example: { "directory": "myproject", "files": [{ "path": "src/index.ts", "content": "..." }] }`
+    );
+  }
+
+  const materialized = materializeFiles(clientFiles);
+  return {
+    rootDir: materialized.rootDir,
+    files: clientFiles,
+    cleanup: materialized.cleanup,
   };
-  walk(dir);
-  return files;
 }
 
-const LICENSE_SERVER_URL = process.env.SAFEWEAVE_LICENSE_URL || 'https://license.safeweave.dev';
-const LICENSE_KEY = process.env.SAFEWEAVE_LICENSE_KEY || '';
+const GATED_SCANNERS = new Set(['iac', 'container', 'dast', 'license', 'posture']);
 
-export function createServer(projectDir: string): Server {
+/** Tool name -> scanner for the licensed tools that share one handler body. */
+const GATED_TOOL_SCANNERS: Record<string, string> = {
+  scan_iac: 'iac',
+  check_container: 'container',
+  check_license: 'license',
+  check_posture: 'posture',
+};
+const GATED_PROFILES = new Set(['hardened', 'owasp', 'soc2', 'pci-dss', 'hipaa']);
+const LICENSE_SERVER_URL = process.env.SAFEWEAVE_LICENSE_URL || 'https://license.safeweave.dev';
+
+const SCANNER_LABELS: Record<string, string> = {
+  iac: 'IaC scanning',
+  container: 'container scanning',
+  dast: 'DAST scanning',
+  license: 'license compliance',
+  posture: 'security posture',
+};
+
+function upgradeFindings(blockedScanners: string[]): Finding[] {
+  return blockedScanners.map((s) => ({
+    id: `LICENSE-UPGRADE-${s.toUpperCase()}`,
+    severity: 'info' as const,
+    title: `Upgrade to Self-Hosted Pro to unlock ${SCANNER_LABELS[s] || s}`,
+    description: `${SCANNER_LABELS[s] || s} requires a SafeWeave Self-Hosted Pro license.`,
+    file: '',
+    remediation: 'Visit https://safeweave.dev/pricing to upgrade',
+  }));
+}
+
+/**
+ * @param allowLocalFiles      May this server read files from its own disk at all?
+ * @param servedOverHttp Whether this instance answers remote callers via the
+ *   HTTP bridge rather than local stdio. Two things follow from it:
+ *   file reads are confined to projectDir, so a trusted (token-holding) but
+ *   remote caller cannot turn one into arbitrary file access on the host; and
+ *   repo attribution is NOT derived from projectDir, which over HTTP is our own
+ *   container rather than the caller's checkout. The local stdio server is the
+ *   developer's own process on their own machine, so neither applies there.
+ */
+export function createServer(
+  projectDir: string,
+  overrideLicenseKey?: string,
+  allowLocalFiles = true,
+  servedOverHttp = false,
+): Server {
   const config = loadConfig(projectDir);
   const router = new Router(config);
   const profileManager = new ProfileManager();
-  const licenseClient = new LicenseClient(LICENSE_SERVER_URL);
+  // Load an optional custom profile from .safeweave/profile.yaml (extends a
+  // built-in via deepMerge). No-op when the file is absent — behavior unchanged.
+  try {
+    profileManager.loadCustomProfile(projectDir);
+  } catch (err) {
+    // Never use stdout: it is the MCP stdio transport channel.
+    console.error(`Failed to load custom profile: ${(err as Error).message}`);
+  }
+  // Over HTTP, projectDir is this container — deriving a slug from it would file
+  // every tenant's every repo under the same name, and because the dashboard
+  // reads scans back with DISTINCT ON (repo) each one would overwrite the last.
+  // Remote callers attribute per request instead; see reportUsage(repo).
+  const licenseClient = new LicenseClient(
+    LICENSE_SERVER_URL,
+    servedOverHttp ? undefined : deriveRepoSlug(projectDir),
+  );
+  const licenseKey = overrideLicenseKey || config.licenseKey;
+
+  // A remote caller's repo can only come from what THEY told us; locally the
+  // client's constructor default already holds the right slug. Without this,
+  // every repo scanned over HTTP shares one bucket and overwrites the last.
+  const repoFor = (directory?: unknown): string | undefined =>
+    servedOverHttp ? normalizeRepoSlug(basename(String(directory || ''))) : undefined;
+
   let lastFindings: Finding[] = [];
 
   const server = new Server(
@@ -100,17 +163,22 @@ export function createServer(projectDir: string): Server {
           type: 'object' as const,
           properties: {
             file_path: { type: 'string', description: 'Path to the file to scan' },
+            content: { type: 'string', description: 'File content (required when running remotely)' },
           },
           required: ['file_path'],
         },
       },
       {
         name: 'scan_project',
-        description: 'Run a full security scan on the project',
+        description: 'Run a full security scan on the project. Collects files automatically when directory is accessible, or accepts files array for remote scanning.',
         inputSchema: {
           type: 'object' as const,
           properties: {
             directory: { type: 'string', description: 'Project root directory' },
+            files: {
+              type: 'array', description: 'Files with content for remote scanning',
+              items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+            },
           },
         },
       },
@@ -121,6 +189,10 @@ export function createServer(projectDir: string): Server {
           type: 'object' as const,
           properties: {
             directory: { type: 'string', description: 'Project root directory' },
+            files: {
+              type: 'array', description: 'Files with content for remote scanning',
+              items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+            },
           },
         },
       },
@@ -141,7 +213,7 @@ export function createServer(projectDir: string): Server {
         inputSchema: {
           type: 'object' as const,
           properties: {
-            profile: { type: 'string', description: 'Profile name (standard, hardened, owasp, soc2, pci-dss, hipaa)', enum: ['standard', 'hardened', 'owasp', 'soc2', 'pci-dss', 'hipaa'] },
+            profile: { type: 'string', description: 'Profile name (standard, hardened, owasp, soc2, pci-dss, hipaa, or custom when a .safeweave/profile.yaml is present)', enum: ['standard', 'hardened', 'owasp', 'soc2', 'pci-dss', 'hipaa', 'custom'] },
           },
           required: ['profile'],
         },
@@ -151,9 +223,7 @@ export function createServer(projectDir: string): Server {
         description: 'Get overall security posture score for the project',
         inputSchema: {
           type: 'object' as const,
-          properties: {
-            directory: { type: 'string', description: 'Project root directory' },
-          },
+          properties: {},
         },
       },
       {
@@ -169,37 +239,49 @@ export function createServer(projectDir: string): Server {
       },
       {
         name: 'scan_iac',
-        description: 'Scan infrastructure-as-code files (Terraform, Dockerfile, Kubernetes) for misconfigurations',
+        description: 'Scan infrastructure-as-code files (Terraform, Dockerfile, Kubernetes) for misconfigurations (Self-Hosted Pro)',
         inputSchema: {
           type: 'object' as const,
           properties: {
             directory: { type: 'string', description: 'Project root directory' },
+            files: {
+              type: 'array', description: 'Files with content for remote scanning',
+              items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+            },
           },
         },
       },
       {
         name: 'check_container',
-        description: 'Scan container images for known vulnerabilities',
+        description: 'Scan container images for known vulnerabilities (Self-Hosted Pro)',
         inputSchema: {
           type: 'object' as const,
           properties: {
             directory: { type: 'string', description: 'Project root directory containing Dockerfile' },
+            files: {
+              type: 'array', description: 'Files with content for remote scanning',
+              items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+            },
           },
         },
       },
       {
         name: 'check_license',
-        description: 'Check dependency license compliance — detect problematic licenses like AGPL, GPL',
+        description: 'Check dependency license compliance — detect problematic licenses like AGPL, GPL (Self-Hosted Pro)',
         inputSchema: {
           type: 'object' as const,
           properties: {
             directory: { type: 'string', description: 'Project root directory' },
+            files: {
+              type: 'array', description: 'Files with content for remote scanning',
+              items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+            },
           },
         },
       },
       {
         name: 'dast_check',
-        description: 'Run lightweight dynamic security testing on API endpoints',
+        description: 'Run lightweight dynamic security testing on API endpoints (Self-Hosted Pro)',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -210,11 +292,15 @@ export function createServer(projectDir: string): Server {
       },
       {
         name: 'check_posture',
-        description: 'Check API security posture — detect missing auth, rate limiting, security headers, CORS misconfig, missing input validation, and other security control gaps',
+        description: 'Check API security posture — detect missing auth, rate limiting, security headers, CORS misconfig, missing input validation, and other security control gaps (Self-Hosted Pro)',
         inputSchema: {
           type: 'object' as const,
           properties: {
             directory: { type: 'string', description: 'Project root directory' },
+            files: {
+              type: 'array', description: 'Files with content for remote scanning',
+              items: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+            },
           },
         },
       },
@@ -223,70 +309,134 @@ export function createServer(projectDir: string): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const params = (args || {}) as Record<string, string>;
+    const params = (args || {}) as Record<string, unknown>;
     const profile = profileManager.getActive();
 
     switch (name) {
       case 'scan_file': {
-        const filePath = params.file_path;
-        const containerPath = toContainerPath(filePath);
-        let content: string | undefined;
-        try {
-          content = readFileSync(containerPath, 'utf-8');
-        } catch {
-          return { content: [{ type: 'text', text: JSON.stringify({ error: `Cannot read file: ${filePath} (resolved to ${containerPath})` }) }], isError: true };
+        const filePath = params.file_path as string;
+        let content = params.content as string | undefined;
+        if (!content) {
+          if (!allowLocalFiles) {
+            return { content: [{ type: 'text', text: JSON.stringify({ error: `This instance does not read files from disk. Pass the file body in the "content" parameter.` }) }], isError: true };
+          }
+          const root = resolve(projectDir);
+          const target = resolve(root, filePath);
+          // Over the HTTP bridge an unrestricted absolute path would be an
+          // arbitrary-file-read primitive against the host. Locally it is just
+          // the developer reading their own files, so leave that alone.
+          if (servedOverHttp && target !== root && !target.startsWith(root + sep)) {
+            return { content: [{ type: 'text', text: JSON.stringify({ error: `Refusing to read outside the project root: ${filePath}` }) }], isError: true };
+          }
+          try {
+            content = readFileSync(target, 'utf-8');
+          } catch {
+            return { content: [{ type: 'text', text: JSON.stringify({ error: `Cannot read file: ${filePath}. If running remotely, pass file content via the "content" parameter.` }) }], isError: true };
+          }
         }
+        // Send a path RELATIVE to the project root. materializeFiles() writes
+        // request files into a temp dir via safeJoin, which rejects absolute
+        // paths as traversal and drops them — so an MCP client passing the
+        // absolute path it normally uses got a confident "no issues" on a file
+        // that was never written, and therefore never scanned.
+        const rel = relative(resolve(projectDir), resolve(projectDir, filePath)) || basename(filePath);
+        const scanPath = rel.startsWith('..') ? basename(filePath) : rel;
+
         const result = await router.scanWith('sast', {
-          files: [{ path: filePath, content }],
+          files: [{ path: scanPath, content }],
           profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
           context: { rootDir: projectDir },
         });
+
+        // Report findings against the path the caller actually asked about.
+        for (const f of result.findings) {
+          if (f.file === scanPath) f.file = filePath;
+        }
+
         lastFindings = [...lastFindings, ...result.findings];
-        licenseClient.reportUsage(LICENSE_KEY, 'sast', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
+        licenseClient.reportUsage(licenseKey, 'sast', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
       case 'scan_project': {
-        const dir = params.directory || projectDir;
-        const containerDir = toContainerPath(dir);
-        const files = collectFiles(containerDir);
-        const result = await router.scanAll({
-          files: files.length > 0 ? files : [{ path: containerDir }],
-          profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: containerDir },
-        });
-        lastFindings = result.findings;
-        licenseClient.reportUsage(LICENSE_KEY, 'all', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        let resolved: ResolvedInput;
+        try {
+          resolved = resolveInput(params.directory as string | undefined, params.files as ClientFile[] | undefined, projectDir, allowLocalFiles, servedOverHttp);
+        } catch (err) {
+          return { content: [{ type: 'text', text: JSON.stringify({ error: (err as Error).message }) }], isError: true };
+        }
+        try {
+          const blocked: string[] = [];
+          for (const s of GATED_SCANNERS) {
+            if (!(await licenseClient.isFeatureAllowed(licenseKey, s))) {
+              blocked.push(s);
+            }
+          }
+          const result = await router.scanAll(
+            {
+              files: resolved.files,
+              profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
+              context: { rootDir: resolved.rootDir },
+            },
+            new Set(blocked),
+          );
+          if (blocked.length > 0) {
+            result.findings.push(...upgradeFindings(blocked));
+          }
+          lastFindings = result.findings;
+          licenseClient.reportUsage(licenseKey, 'all', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0, repoFor(params.directory));
+          return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        } finally {
+          resolved.cleanup();
+        }
       }
 
       case 'scan_dependencies': {
-        const dir = params.directory || projectDir;
-        const containerDir = toContainerPath(dir);
-        const result = await router.scanWith('deps', {
-          files: [{ path: 'package.json' }],
-          profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: containerDir },
-        });
-        lastFindings = [...lastFindings, ...result.findings];
-        licenseClient.reportUsage(LICENSE_KEY, 'deps', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        let resolved: ResolvedInput;
+        try {
+          resolved = resolveInput(params.directory as string | undefined, params.files as ClientFile[] | undefined, projectDir, allowLocalFiles, servedOverHttp);
+        } catch (err) {
+          return { content: [{ type: 'text', text: JSON.stringify({ error: (err as Error).message }) }], isError: true };
+        }
+        try {
+          const result = await router.scanWith('deps', {
+            files: resolved.files,
+            profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
+            context: { rootDir: resolved.rootDir },
+          });
+          lastFindings = [...lastFindings, ...result.findings];
+          licenseClient.reportUsage(licenseKey, 'deps', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0, repoFor(params.directory));
+          return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        } finally {
+          resolved.cleanup();
+        }
       }
 
       case 'get_findings': {
         let filtered = lastFindings;
         if (params.severity) {
-          filtered = filtered.filter(f => f.severity === params.severity);
+          filtered = filtered.filter(f => f.severity === (params.severity as string));
         }
         if (params.file) {
-          filtered = filtered.filter(f => f.file.includes(params.file));
+          filtered = filtered.filter(f => f.file.includes(params.file as string));
         }
         return { content: [{ type: 'text', text: JSON.stringify({ findings: filtered, total: filtered.length }) }] };
       }
 
       case 'set_profile': {
         try {
-          profileManager.setActive(params.profile);
+          const profileName = params.profile as string;
+          if (GATED_PROFILES.has(profileName)) {
+            const feature = profileName === 'hardened' ? 'hardened_profile' : 'compliance_profiles';
+            const allowed = await licenseClient.isFeatureAllowed(licenseKey, feature);
+            if (!allowed) {
+              return {
+                content: [{ type: 'text', text: JSON.stringify({ error: `The '${profileName}' profile requires a SafeWeave Self-Hosted Pro license. Visit https://safeweave.dev/pricing` }) }],
+                isError: true,
+              };
+            }
+          }
+          profileManager.setActive(profileName);
           const active = profileManager.getActive();
           return { content: [{ type: 'text', text: JSON.stringify({ profile: active.name, description: active.description }) }] };
         } catch (err) {
@@ -300,7 +450,7 @@ export function createServer(projectDir: string): Server {
       }
 
       case 'suggest_fix': {
-        const finding = lastFindings.find(f => f.id === params.finding_id);
+        const finding = lastFindings.find(f => f.id === (params.finding_id as string));
         if (!finding) {
           return { content: [{ type: 'text', text: JSON.stringify({ error: `Finding not found: ${params.finding_id}` }) }], isError: true };
         }
@@ -318,68 +468,50 @@ export function createServer(projectDir: string): Server {
         };
       }
 
-      case 'scan_iac': {
-        const dir = params.directory || projectDir;
-        const containerDir = toContainerPath(dir);
-        const result = await router.scanWith('iac', {
-          files: [{ path: containerDir }],
-          profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: containerDir },
-        });
-        lastFindings = [...lastFindings, ...result.findings];
-        licenseClient.reportUsage(LICENSE_KEY, 'iac', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-      }
-
-      case 'check_container': {
-        const dir = params.directory || projectDir;
-        const containerDir = toContainerPath(dir);
-        const result = await router.scanWith('container', {
-          files: [{ path: containerDir }],
-          profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: containerDir },
-        });
-        lastFindings = [...lastFindings, ...result.findings];
-        licenseClient.reportUsage(LICENSE_KEY, 'container', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-      }
-
-      case 'check_license': {
-        const dir = params.directory || projectDir;
-        const containerDir = toContainerPath(dir);
-        const result = await router.scanWith('license', {
-          files: [{ path: containerDir }],
-          profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: containerDir },
-        });
-        lastFindings = [...lastFindings, ...result.findings];
-        licenseClient.reportUsage(LICENSE_KEY, 'license', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      // iac / container / license / posture are all the same flow: check the
+      // licensed feature, resolve input, run one scanner, record usage.
+      case 'scan_iac':
+      case 'check_container':
+      case 'check_license':
+      case 'check_posture': {
+        const scanner = GATED_TOOL_SCANNERS[name];
+        const allowed = await licenseClient.isFeatureAllowed(licenseKey, scanner);
+        if (!allowed) {
+          return { content: [{ type: 'text', text: JSON.stringify({ findings: upgradeFindings([scanner]), metadata: { scanner, version: '0.1.0', duration_ms: 0, files_scanned: 0, timestamp: new Date().toISOString() } }) }] };
+        }
+        let resolved: ResolvedInput;
+        try {
+          resolved = resolveInput(params.directory as string | undefined, params.files as ClientFile[] | undefined, projectDir, allowLocalFiles, servedOverHttp);
+        } catch (err) {
+          return { content: [{ type: 'text', text: JSON.stringify({ error: (err as Error).message }) }], isError: true };
+        }
+        try {
+          const result = await router.scanWith(scanner, {
+            files: resolved.files,
+            profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
+            context: { rootDir: resolved.rootDir },
+          });
+          lastFindings = [...lastFindings, ...result.findings];
+          licenseClient.reportUsage(licenseKey, scanner, result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0, repoFor(params.directory));
+          return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        } finally {
+          resolved.cleanup();
+        }
       }
 
       case 'dast_check': {
-        const dir = params.directory || projectDir;
-        const containerDir = toContainerPath(dir);
+        const dir = (params.directory as string) || projectDir;
+        const allowed = await licenseClient.isFeatureAllowed(licenseKey, 'dast');
+        if (!allowed) {
+          return { content: [{ type: 'text', text: JSON.stringify({ findings: upgradeFindings(['dast']), metadata: { scanner: 'dast', version: '0.1.0', duration_ms: 0, files_scanned: 0, timestamp: new Date().toISOString() } }) }] };
+        }
         const result = await router.scanWith('dast', {
-          files: [{ path: containerDir }],
+          files: [{ path: dir }],
           profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: containerDir, target_url: params.target_url },
+          context: { rootDir: dir, target_url: params.target_url as string },
         });
         lastFindings = [...lastFindings, ...result.findings];
-        licenseClient.reportUsage(LICENSE_KEY, 'dast', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-      }
-
-      case 'check_posture': {
-        const dir = params.directory || projectDir;
-        const containerDir = toContainerPath(dir);
-        const result = await router.scanWith('posture', {
-          files: [{ path: containerDir }],
-          profile: { name: profile.name, rules: profile.rules as Record<string, unknown> },
-          context: { rootDir: containerDir },
-        });
-        lastFindings = [...lastFindings, ...result.findings];
-        licenseClient.reportUsage(LICENSE_KEY, 'posture', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0);
+        licenseClient.reportUsage(licenseKey, 'dast', result.findings, typeof result.metadata.duration_ms === 'number' ? result.metadata.duration_ms : 0, repoFor(params.directory));
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 
@@ -422,6 +554,7 @@ export function createServer(projectDir: string): Server {
           contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(config) }],
         };
       default: {
+        // Handle safeweave://compliance/{profile} URIs
         const complianceMatch = uri.match(/^safeweave:\/\/compliance\/(.+)$/);
         if (complianceMatch) {
           const profileData = profileManager.getProfile(complianceMatch[1]);
@@ -442,28 +575,28 @@ export function createServer(projectDir: string): Server {
     prompts: [
       {
         name: 'security_review',
-        description: 'Conduct a security review of specific code.',
+        description: 'Conduct a security review of specific code. Analyzes code for vulnerabilities, suggests fixes, and rates risk.',
         arguments: [
-          { name: 'code', description: 'The code to review', required: true },
-          { name: 'language', description: 'Programming language', required: false },
-          { name: 'context', description: 'Additional context', required: false },
+          { name: 'code', description: 'The code to review for security issues', required: true },
+          { name: 'language', description: 'Programming language of the code', required: false },
+          { name: 'context', description: 'Additional context about where this code runs', required: false },
         ],
       },
       {
         name: 'threat_model',
-        description: 'Generate a threat model using STRIDE.',
+        description: 'Generate a threat model for a system or feature. Identifies threats, attack surfaces, and mitigations using STRIDE.',
         arguments: [
-          { name: 'system', description: 'System description', required: true },
-          { name: 'data_flows', description: 'Data flow description', required: false },
-          { name: 'trust_boundaries', description: 'Trust boundary description', required: false },
+          { name: 'system', description: 'Description of the system or feature to threat model', required: true },
+          { name: 'data_flows', description: 'Description of data flows (who sends what to whom)', required: false },
+          { name: 'trust_boundaries', description: 'Description of trust boundaries in the system', required: false },
         ],
       },
       {
         name: 'secure_code_guide',
-        description: 'Get secure coding guidelines.',
+        description: 'Get secure coding guidelines for a specific language, framework, or vulnerability class.',
         arguments: [
-          { name: 'topic', description: 'Topic to get guidance on', required: true },
-          { name: 'profile', description: 'Compliance profile', required: false },
+          { name: 'topic', description: 'The topic to get guidance on (e.g., "SQL injection in Node.js", "React XSS prevention")', required: true },
+          { name: 'profile', description: 'Compliance profile to align guidance with (standard, owasp, soc2, pci-dss, hipaa)', required: false },
         ],
       },
     ],
@@ -478,68 +611,124 @@ export function createServer(projectDir: string): Server {
         const lang = promptArgs.language ? ` (${promptArgs.language})` : '';
         const ctx = promptArgs.context ? `\n\nContext: ${promptArgs.context}` : '';
         return {
-          messages: [{
-            role: 'user',
-            content: {
-              type: 'text',
-              text: `You are a senior application security engineer. Analyze the following code${lang} for security vulnerabilities.${ctx}\n\nCode:\n\`\`\`\n${promptArgs.code}\n\`\`\``,
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `You are a senior application security engineer conducting a code review. Analyze the following code${lang} for security vulnerabilities.${ctx}
+
+For each issue found:
+1. **Severity**: Rate as critical/high/medium/low/info
+2. **Vulnerability**: Name the vulnerability type (e.g., SQL Injection, XSS, SSRF)
+3. **CWE**: Provide the CWE identifier if applicable
+4. **Location**: Point to the exact line(s)
+5. **Impact**: Explain what an attacker could do
+6. **Fix**: Provide a corrected code snippet
+
+After individual findings, provide:
+- **Overall Risk Rating**: critical/high/medium/low
+- **Summary**: 1-2 sentence risk summary
+- **Top Priority Fix**: The single most important change to make
+
+Code to review:
+\`\`\`
+${promptArgs.code}
+\`\`\``,
+              },
             },
-          }],
+          ],
         };
       }
+
       case 'threat_model': {
         const dataFlows = promptArgs.data_flows ? `\n\nData Flows:\n${promptArgs.data_flows}` : '';
         const trustBoundaries = promptArgs.trust_boundaries ? `\n\nTrust Boundaries:\n${promptArgs.trust_boundaries}` : '';
         return {
-          messages: [{
-            role: 'user',
-            content: {
-              type: 'text',
-              text: `Conduct a STRIDE threat model for:\n\n${promptArgs.system}${dataFlows}${trustBoundaries}`,
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `You are a security architect conducting a threat modeling exercise using the STRIDE methodology. Analyze the following system.
+
+System Description:
+${promptArgs.system}${dataFlows}${trustBoundaries}
+
+Produce a threat model with the following sections:
+
+## 1. Attack Surface
+List all entry points, interfaces, and exposed components.
+
+## 2. STRIDE Analysis
+For each threat category (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege):
+- **Threat**: Specific threat scenario
+- **Component**: Which part of the system is affected
+- **Likelihood**: High/Medium/Low
+- **Impact**: High/Medium/Low
+- **Risk**: Overall risk rating
+
+## 3. Data Flow Risks
+Identify where sensitive data crosses trust boundaries and what protections are needed.
+
+## 4. Recommended Mitigations
+Prioritized list of security controls to implement, ordered by risk reduction.
+
+## 5. Security Requirements
+Concrete security requirements that should be added to the backlog.`,
+              },
             },
-          }],
+          ],
         };
       }
+
       case 'secure_code_guide': {
         const profileName = promptArgs.profile || 'standard';
         const profileData = profileManager.getProfile(profileName);
-        const profileContext = profileData ? `\n\nAlign with "${profileData.name}" profile: ${profileData.description}` : '';
+        const profileContext = profileData
+          ? `\n\nAlign guidance with the "${profileData.name}" compliance profile: ${profileData.description}. Severity thresholds: error=${profileData.severity_thresholds.error}, warn=${profileData.severity_thresholds.warn}.`
+          : '';
         return {
-          messages: [{
-            role: 'user',
-            content: {
-              type: 'text',
-              text: `Provide secure coding guidance on: ${promptArgs.topic}${profileContext}`,
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `You are a secure coding expert. Provide comprehensive, practical secure coding guidance on the following topic:
+
+Topic: ${promptArgs.topic}${profileContext}
+
+Structure your response as:
+
+## Overview
+Brief explanation of the vulnerability class or security concern.
+
+## Common Mistakes
+Code examples showing vulnerable patterns (with comments explaining why they're dangerous).
+
+## Secure Patterns
+Code examples showing the correct, secure approach (with comments explaining the security benefit).
+
+## Checklist
+A developer checklist for preventing this class of vulnerability.
+
+## Testing
+How to verify the code is secure (specific test cases, tools, or manual checks).
+
+## References
+Relevant CWEs, OWASP entries, and documentation links.`,
+              },
             },
-          }],
+          ],
         };
       }
+
       default:
         throw new Error(`Unknown prompt: ${name}`);
     }
   });
 
   return server;
-}
-
-function calculateScore(findings: Finding[]): { score: number; status: string; breakdown: Record<string, number> } {
-  if (findings.length === 0) {
-    return { score: 100, status: 'no_findings', breakdown: {} };
-  }
-
-  const weights: Record<Severity, number> = { critical: 25, high: 15, medium: 8, low: 3, info: 0 };
-  let deductions = 0;
-  const breakdown: Record<string, number> = {};
-
-  for (const f of findings) {
-    deductions += weights[f.severity] || 0;
-    breakdown[f.severity] = (breakdown[f.severity] || 0) + 1;
-  }
-
-  const score = Math.max(0, 100 - deductions);
-  const status = score >= 80 ? 'good' : score >= 50 ? 'needs_attention' : 'critical';
-
-  return { score, status, breakdown };
 }
 
 function summarizeFindings(findings: Finding[]): { total: number; by_severity: Record<string, number> } {

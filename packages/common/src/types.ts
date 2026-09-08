@@ -37,19 +37,9 @@ export interface ScanRequest {
   context: ProjectContext;
 }
 
-export interface ScannerStatus {
-  scanner: string;
-  status: 'completed' | 'skipped' | 'error';
-  findings_count: number;
-  severity_counts: Record<Severity, number>;
-  duration_ms: number;
-  reason?: string;
-}
-
 export interface ScanResult {
   findings: Finding[];
   metadata: ScanMetadata;
-  scanner_results?: ScannerStatus[];
 }
 
 export interface ScanMetadata {
@@ -59,6 +49,28 @@ export interface ScanMetadata {
   files_scanned: number;
   timestamp: string;
   warnings?: string[];
+}
+
+/**
+ * What an engine module hands back to its HTTP server.
+ *
+ * Engines MUST return warnings rather than swallowing a failure into an empty
+ * findings array. "No findings" and "the engine never ran" are indistinguishable
+ * to a caller otherwise, and for a security scanner the second one reported as
+ * the first is the worst possible outcome: a clean bill of health and a grade of
+ * A on code that was never examined.
+ */
+export interface ScanOutcome {
+  findings: Finding[];
+  warnings: string[];
+}
+
+/**
+ * Standard warning for an engine binary that could not be run. Phrased for the
+ * end user, who needs to know their scan was incomplete — not silently clean.
+ */
+export function engineUnavailable(engine: string, installHint: string): string {
+  return `${engine} did not run, so these results are INCOMPLETE (not a clean result). ${installHint}`;
 }
 
 export interface ValidationResult {
